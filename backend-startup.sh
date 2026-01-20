@@ -1,18 +1,17 @@
-```bash
 #!/bin/bash
 set -e
 
 # ===== 설정 =====
 APP_PORT="8080"
-LOG_DIR="$HOME/logs"
+LOG_DIR="$HOME/be/logs"
 
-cd ~/backend
+cd ~/be
 
 echo "===== 배포 시작 ====="
 
 echo "[1/5] git pull"
-git checkout main
-git pull origin main
+git checkout develop
+git pull origin develop
 
 echo "[2/5] build"
 ./gradlew clean build -x test
@@ -37,23 +36,24 @@ fi
 echo "[4/5] run new process"
 mkdir -p "$LOG_DIR"
 
-nohup java -jar build/libs/*-SNAPSHOT.jar \
-  --spring.profiles.active=prod \
+nohup java -jar app-api/build/libs/*-SNAPSHOT.jar \
+  --spring.profiles.active=dev \
   > "$LOG_DIR/backend.log" 2>&1 &
   
 echo "[5/5] wait for port $APP_PORT"
 
-for i in {1..30}; do
+for i in {1..60}; do
   if lsof -ti :"$APP_PORT" >/dev/null 2>&1; then
     echo "서버 정상 기동 (port $APP_PORT)"
     exit 0
-  else
-    echo "서버 기동 대기 중... ($i)"
-    sleep 1
   fi
+
+  if (( i % 10 == 0 )); then
+    echo "서버 기동 대기 중... (${i}초 경과)"
+  fi
+  sleep 1
 done
 
 echo "서버 기동 실패 (port $APP_PORT 열리지 않음)"
 echo "로그 확인: $LOG_DIR/backend.log"
 exit 1
-```
