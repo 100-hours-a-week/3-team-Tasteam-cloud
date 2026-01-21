@@ -8,13 +8,13 @@ cd ~/ai
 echo "===== AI 서버 배포 시작 ====="
 
 echo "[1/4] git pull"
-git checkout feat/all # jayvi에게 공지하고 main 또는 develop으로 변경 필요
-git pull origin feat/all
+git checkout develop
+git pull origin develop
 
 echo "[2/4] 가상환경 및 패키지 설치"
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install --no-cache-dir -r requirements.txt
 
 echo "[3/4] 기존 프로세스 종료"
 PID=$(lsof -ti :$PORT || true)
