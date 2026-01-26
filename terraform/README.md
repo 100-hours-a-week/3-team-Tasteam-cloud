@@ -14,7 +14,8 @@
 
 ### 사전 요구 사항
 
-*   [Terraform](https://www.terraform.io/) (>= 1.0.0)
+*   [Terraform](https://www.terraform.io/) (~> 1.14)
+*   [AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest) (~> 6.28)
 *   AWS CLI (설정 및 자격 증명 완료)
 
 ### 사용법
