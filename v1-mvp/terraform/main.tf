@@ -3,6 +3,7 @@ resource "aws_instance" "dev_single_instance" {
   associate_public_ip_address = true
   availability_zone           = var.availability_zone
   ebs_optimized               = true
+  iam_instance_profile        = aws_iam_instance_profile.ec2_s3.name
   instance_type               = var.instance_type
   key_name                    = var.key_name
   private_ip                  = "172.31.29.122"
