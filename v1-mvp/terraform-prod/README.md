@@ -4,7 +4,7 @@
 
 ## 주요 리소스
 
-*   **EC2 Instance**: `dev_single_instance` (개발용 단일 인스턴스)
+*   **EC2 Instance**: `prod_single_instance` (프로덕션 단일 인스턴스)
     *   Docker 환경 최적화 (Hop Limit 조정)
     *   IMDSv2 보안 적용
 *   **Networking**: VPC, Subnet, Security Group, EIP 등

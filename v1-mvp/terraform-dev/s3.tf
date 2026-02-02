@@ -1,9 +1,9 @@
 # Development 환경용 S3 버킷
 resource "aws_s3_bucket" "uploads" {
-  bucket = "tasteam-uploads-development"
+  bucket = "development-tasteam-uploads"
 
   tags = {
-    Name        = "tasteam-uploads-development"
+    Name        = "development-tasteam-uploads"
     Purpose     = "presigned-url-uploads"
     Environment = var.environment
   }

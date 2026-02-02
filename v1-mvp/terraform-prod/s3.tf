@@ -3,9 +3,9 @@ resource "aws_s3_bucket" "uploads" {
   bucket = "tasteam-uploads-dev"
 
   tags = {
-    Name        = "tasteam-uploads-dev"
+    Name        = "prod-tasteam-uploads"
     Purpose     = "presigned-url-uploads"
-    Environment = "dev"
+    Environment = var.environment
   }
 }
 

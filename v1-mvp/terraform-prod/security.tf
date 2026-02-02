@@ -38,6 +38,11 @@ resource "aws_security_group" "main" {
     to_port     = 8081
     protocol    = "tcp"
   }
+
+  tags = {
+    Name        = "prod-sg-main"
+    Environment = var.environment
+  }
 }
 
 resource "aws_security_group" "default" {

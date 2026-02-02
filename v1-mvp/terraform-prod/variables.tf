@@ -31,5 +31,11 @@ variable "key_name" {
 variable "instance_name" {
   description = "Name tag for the instance"
   type        = string
-  default     = "dev-ec2-mvp"
+  default     = "prod-ec2-mvp"
+}
+
+variable "environment" {
+  description = "Environment name"
+  type        = string
+  default     = "production"
 }

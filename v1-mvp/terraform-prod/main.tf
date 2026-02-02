@@ -1,4 +1,4 @@
-resource "aws_instance" "dev_single_instance" {
+resource "aws_instance" "prod_single_instance" {
   ami                         = var.instance_ami
   associate_public_ip_address = true
   availability_zone           = var.availability_zone
@@ -10,7 +10,8 @@ resource "aws_instance" "dev_single_instance" {
   subnet_id                   = aws_subnet.public_b.id
 
   tags = {
-    Name = var.instance_name
+    Name        = var.instance_name
+    Environment = var.environment
   }
 
   vpc_security_group_ids = [aws_security_group.main.id]
@@ -33,6 +34,6 @@ resource "aws_eip" "main" {
 }
 
 resource "aws_eip_association" "main" {
-  instance_id   = aws_instance.dev_single_instance.id
+  instance_id   = aws_instance.prod_single_instance.id
   allocation_id = aws_eip.main.id
 }
