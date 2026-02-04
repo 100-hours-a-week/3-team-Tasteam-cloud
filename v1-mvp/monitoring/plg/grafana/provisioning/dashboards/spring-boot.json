@@ -1,0 +1,53 @@
+{
+  "dashboard": {
+    "title": "Spring Boot Application Monitoring",
+    "tags": ["spring-boot", "jvm", "metrics"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "title": "JVM Memory Used",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(jvm_memory_used_bytes{job=\"spring-boot-app\"})",
+            "legendFormat": "Used Memory"
+          }
+        ]
+      },
+      {
+        "title": "CPU Usage",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "system_cpu_usage{job=\"spring-boot-app\"}",
+            "legendFormat": "CPU Usage"
+          }
+        ]
+      },
+      {
+        "title": "HTTP Requests Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(http_server_requests_seconds_count{job=\"spring-boot-app\"}[5m])",
+            "legendFormat": "{{uri}} - {{method}}"
+          }
+        ]
+      },
+      {
+        "title": "Database Connection Pool",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "hikaricp_connections_active{job=\"spring-boot-app\"}",
+            "legendFormat": "Active Connections"
+          }
+        ]
+      }
+    ]
+  }
+}
