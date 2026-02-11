@@ -23,7 +23,7 @@ resource "aws_instance" "dev_single_instance" {
   }
 
   root_block_device {
-    volume_size = 30
+    volume_size = 40
     volume_type = "gp3"
   }
 }
