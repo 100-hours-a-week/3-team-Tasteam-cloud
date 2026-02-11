@@ -63,11 +63,11 @@ resource "aws_security_group" "redis" {
   }
 
   ingress {
-    cidr_blocks = ["10.0.0.0/16"]
-    description = "Redis access from VPC"
-    from_port   = 6379
-    to_port     = 6379
-    protocol    = "tcp"
+    security_groups = [aws_security_group.main.id]
+    description     = "Redis access from dev single instance only"
+    from_port       = 6379
+    to_port         = 6379
+    protocol        = "tcp"
   }
 
   tags = {
