@@ -1,0 +1,16 @@
+# prod EC2의 AMI ID (필수)
+source_ami = "ami-xxxxxxxxxxxxxxxxx"
+
+# RDS 마스터 비밀번호 (필수)
+db_password = "your-secure-password-here"
+
+# -- 아래는 기본값이 있으므로 필요시에만 오버라이드 --
+# source_instance_type       = "c7i-flex.large"
+# key_name                   = "key-pair-mvp"
+# orchestrator_instance_type = "t3.micro"
+# db_instance_class          = "db.t3.micro"
+# db_engine_version          = "17"
+# db_name                    = "tasteam"
+# db_username                = "postgres"
+# db_allocated_storage       = 20
+
