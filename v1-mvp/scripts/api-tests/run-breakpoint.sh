@@ -81,9 +81,18 @@ fi
 
 echo ""
 
+# Generate specific Test ID
+TEST_ID="breakpoint-$(date +%Y%m%d-%H%M%S)"
+
+echo "🆔 Test ID: $TEST_ID"
+echo ""
+
 # k6 실행
 cd "$SCRIPT_DIR"
-k6 run $K6_OUTPUT_ARG breakpoint_test.js
+k6 run $K6_OUTPUT_ARG \
+  --tag testid=$TEST_ID \
+  -e TEST_ID=$TEST_ID \
+  breakpoint_test.js
 
 echo ""
 echo "✅ 브레이크포인트 테스트 완료!"

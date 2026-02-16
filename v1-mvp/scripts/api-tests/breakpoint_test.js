@@ -26,6 +26,10 @@ import {
     executeReadScenario,
     executeWriteScenario,
 } from './shared/scenarios.js';
+import { logTestStart, SuccessMetrics } from './shared/test-utils.js';
+
+// ============ Custom Metrics ============
+const metrics = new SuccessMetrics(['read_success_count', 'write_success_count']);
 
 // ============ Test Options ============
 export const options = {
@@ -71,8 +75,7 @@ export const options = {
 
 // ============ Setup ============
 export function setup() {
-    console.log(`🎯 Breakpoint Test 시작`);
-    console.log(`   Target: ${BASE_URL}`);
+    logTestStart('Breakpoint Test', BASE_URL);
     console.log(`   Read:Write 비율 = 80:20`);
     console.log(`   최대 부하: 조회 3000 RPS, 쓰기 600 RPS (제한 해제 모드)`);
 
@@ -124,7 +127,8 @@ export function readScenario(data) {
     state.groupId = data.groupId;
     state.keywordIds = data.keywordIds;
 
-    executeReadScenario(state);
+    const count = executeReadScenario(state);
+    metrics.add(count, 'read_success_count');
 }
 
 /**
@@ -145,7 +149,8 @@ export function writeScenario(data) {
     state.groupId = data.groupId;
     state.keywordIds = data.keywordIds;
 
-    executeWriteScenario(state);
+    const count = executeWriteScenario(state);
+    metrics.add(count, 'write_success_count');
 }
 
 // ============ Teardown ============
@@ -153,3 +158,4 @@ export function teardown(data) {
     console.log('🏁 Breakpoint Test 완료');
     console.log('   결과는 k6 summary 및 Grafana 대시보드에서 확인하세요.');
 }
+

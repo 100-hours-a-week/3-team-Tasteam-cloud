@@ -375,40 +375,60 @@ export function createReview(token, groupId, keywordIds) {
  * 전체 조회 시나리오 실행 (SLO: p95 < 1초)
  */
 export function executeReadScenario(state) {
+    let successCount = 0;
+
     // 메인 페이지
-    getMainPage(state.token);
+    const resMain = getMainPage(state.token);
+    if (resMain && resMain.status === 200) successCount++;
 
     // 음식점 목록 + ID 추출
     const listResult = getRestaurantList(state.token);
+    if (listResult.response && listResult.response.status === 200) successCount++;
     const restaurantId = listResult.restaurantId || state.restaurantId;
 
     // 음식점 상세
     if (restaurantId) {
-        getRestaurantDetail(state.token, restaurantId);
+        const resDetail = getRestaurantDetail(state.token, restaurantId);
+        if (resDetail && resDetail.status === 200) successCount++;
     }
 
     // 음식점 리뷰 목록
     const reviewResult = getRestaurantReviews(state.token, restaurantId);
+    if (reviewResult.response && reviewResult.response.status === 200) successCount++;
     const reviewId = reviewResult.reviewId || state.reviewId;
 
     // 그룹 상세
-    getGroupDetail(state.token, state.groupId);
+    if (state.groupId) {
+        const resGroup = getGroupDetail(state.token, state.groupId);
+        if (resGroup && resGroup.status === 200) successCount++;
+    }
 
     // 그룹 리뷰 목록
-    getGroupReviews(state.token, state.groupId);
+    if (state.groupId) {
+        const resGroupReview = getGroupReviews(state.token, state.groupId);
+        if (resGroupReview && resGroupReview.response && resGroupReview.response.status === 200) successCount++;
+    }
 
     // 리뷰 상세
     if (reviewId) {
-        getReviewDetail(state.token, reviewId);
+        const resReview = getReviewDetail(state.token, reviewId);
+        if (resReview && resReview.status === 200) successCount++;
     }
 
     // 통합 검색
-    search(state.token);
+    const resSearch = search(state.token);
+    if (resSearch && resSearch.status === 200) successCount++;
+
+    return successCount;
 }
 
 /**
  * 전체 쓰기 시나리오 실행 (SLO: p95 < 3초)
  */
 export function executeWriteScenario(state) {
-    createReview(state.token, state.groupId, state.keywordIds);
+    const res = createReview(state.token, state.groupId, state.keywordIds);
+    if (res && (res.status === 200 || res.status === 201)) {
+        return 1;
+    }
+    return 0;
 }

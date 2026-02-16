@@ -2,14 +2,12 @@ import { check, sleep } from 'k6';
 import { randomItem } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js';
 import {
     BASE_URL,
-    batchLogin,
     search,
 } from './shared/scenarios.js';
+import { logTestStart, SuccessMetrics } from './shared/test-utils.js';
 
 // ============ Test Options ============
-import { Counter } from 'k6/metrics';
-
-const searchSuccessCount = new Counter('search_success_count');
+const metrics = new SuccessMetrics(['search_success_count']);
 
 export const options = {
     scenarios: {
@@ -18,7 +16,7 @@ export const options = {
             startRate: 10,
             timeUnit: '1s',
             preAllocatedVUs: 1000,
-            maxVUs: 5000,
+            maxVUs: 10000,
             stages: [
                 { target: 100, duration: '30s' },   // Warm up
                 { target: 500, duration: '1m' },    // Load
@@ -49,22 +47,13 @@ const SEARCH_KEYWORDS = [
 
 // ============ Setup ============
 export function setup() {
-    console.log(`🔥 Search Stress Test 시작`);
-    console.log(`   Test ID: ${__ENV.TEST_ID}`);
-    console.log(`   Target: ${BASE_URL}`);
+    logTestStart('Search Stress Test', BASE_URL);
 
-    // 다수 테스트 계정으로 배치 로그인 (100명)
-    // 인증된 사용자 부하를 가정. 필요시 비로그인 시나리오 추가 가능
-    const tokens = batchLogin(100);
-
-    if (!tokens || tokens.length === 0) {
-        console.warn('⚠️ 로그인 실패 또는 토큰 없음 - 비로그인 검색으로 진행할 수 있음 (토큰 없이 진행)');
-    } else {
-        console.log(`✅ Setup 완료: ${tokens.length}개의 테스트 계정 토큰 획득`);
-    }
+    // 검색 API는 인증 불필요 - 로그인 없이 바로 테스트 진행
+    console.log('✅ Setup 완료: 비로그인 검색 테스트 모드');
 
     return {
-        tokens: tokens || [],
+        tokens: [], // 토큰 없이 진행
     };
 }
 
@@ -96,7 +85,7 @@ export function searchScenario(data) {
     });
 
     if (res.status === 200) {
-        searchSuccessCount.add(1);
+        metrics.add(1, 'search_success_count');
     }
 }
 
