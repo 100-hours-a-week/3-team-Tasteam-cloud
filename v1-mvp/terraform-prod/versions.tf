@@ -18,10 +18,12 @@ terraform {
     bucket       = "terraform-state-mvp-bucket"
     key          = "terraform/terraform.tfstate"
     region       = "ap-northeast-2"
+    profile      = "tasteam-v1"
     use_lockfile = true
   }
 }
 
 provider "aws" {
-  region = var.aws_region
+  region  = var.aws_region
+  profile = "tasteam-v1"
 }
