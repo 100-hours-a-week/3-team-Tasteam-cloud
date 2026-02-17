@@ -6,9 +6,9 @@ module "vpc" {
   source = "../../modules/vpc"
 
   environment          = var.environment
-  vpc_cidr             = "10.11.0.0/16"
-  public_subnet_cidrs  = ["10.11.0.0/20", "10.11.16.0/20"]
-  private_subnet_cidrs = ["10.11.128.0/20", "10.11.144.0/20"]
+  vpc_cidr             = "10.12.0.0/16"
+  public_subnet_cidrs  = ["10.12.0.0/20", "10.12.16.0/20"]
+  private_subnet_cidrs = ["10.12.128.0/20", "10.12.144.0/20"]
   availability_zones   = ["ap-northeast-2a", "ap-northeast-2c"]
 }
 

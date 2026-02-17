@@ -1,14 +1,14 @@
 output "vpc_id" {
-  description = "Prod VPC ID"
+  description = "Stg VPC ID"
   value       = module.vpc.vpc_id
 }
 
 output "vpc_cidr_block" {
-  description = "Prod VPC CIDR block"
+  description = "Stg VPC CIDR block"
   value       = module.vpc.vpc_cidr_block
 }
 
 output "private_route_table_id" {
-  description = "Prod private route table ID"
+  description = "Stg private route table ID"
   value       = module.vpc.private_route_table_id
 }

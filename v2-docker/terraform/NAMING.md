@@ -114,13 +114,29 @@ resource "aws_security_group" "rds" {}
 
 ## 공통 태그
 
-모든 리소스에 필수:
+`Environment`, `Project`, `ManagedBy` 태그는 **provider `default_tags`** 로 자동 적용된다.
+각 environment의 `versions.tf`에서 한 번만 선언하면 모든 AWS 리소스에 일괄 적용된다.
+
+```hcl
+# environments/{env}/versions.tf
+provider "aws" {
+  ...
+  default_tags {
+    tags = {
+      Environment = var.environment    # prod, dev, stg
+      Project     = "tasteam"
+      ManagedBy   = "terraform"
+    }
+  }
+}
+```
+
+개별 리소스에는 **`Name` 태그만** 선언한다:
 
 ```hcl
 tags = {
-  Name        = "{env}-{type}-{purpose}"
-  Environment = var.environment    # prod, dev, stg
-  Project     = "tasteam"
-  ManagedBy   = "terraform"
+  Name = "{env}-{type}-{purpose}"
 }
 ```
+
+> `default_tags`와 리소스 `tags`에 같은 키가 있으면 리소스의 값이 우선한다.
