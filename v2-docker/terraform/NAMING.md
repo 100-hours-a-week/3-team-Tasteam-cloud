@@ -34,6 +34,7 @@
 | CloudFront | cf |
 | Load Balancer | alb / nlb |
 | Target Group | tg |
+| SSM Parameter | ssm |
 
 ### Name 태그 예시
 
@@ -112,6 +113,34 @@ resource "aws_security_group" "rds" {}
 
 ---
 
+## SSM Parameter Store 경로
+
+```
+/{env}/tasteam/{service}/{parameter-name}
+```
+
+| 세그먼트 | 규칙 | 예시 |
+|----------|------|------|
+| env | `prod`, `dev`, `stg` | prod |
+| tasteam | 프로젝트명 (고정) | tasteam |
+| service | 서비스/카테고리 | `spring`, `fastapi`, `monitoring` |
+| parameter-name | 파라미터명 (kebab-case) | `db-url`, `jwt-secret` |
+
+### 경로 예시
+
+```
+/prod/tasteam/spring/db-url
+/prod/tasteam/spring/jwt-secret
+/prod/tasteam/fastapi/openai-api-key
+/prod/tasteam/monitoring/grafana-admin-password
+```
+
+- `SecureString` 타입은 AWS KMS 기본 키(`aws/ssm`)로 암호화
+- 값은 Terraform이 아닌 AWS 콘솔/CLI에서 직접 설정
+- Name 태그: `{env}-ssm-{service}-{parameter-name}` (슬래시를 하이픈으로 치환)
+
+---
+
 ## 공통 태그
 
 `Environment`, `Project`, `ManagedBy` 태그는 **provider `default_tags`** 로 자동 적용된다.
@@ -140,3 +169,4 @@ tags = {
 ```
 
 > `default_tags`와 리소스 `tags`에 같은 키가 있으면 리소스의 값이 우선한다.
+
