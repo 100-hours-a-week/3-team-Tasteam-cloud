@@ -1,6 +1,8 @@
-# Terraform Naming Convention — tasteam v2
+# Terraform Conventions — tasteam v2
 
-## AWS Name 태그 (콘솔 표시명)
+## 1. 네이밍 컨벤션
+
+### 1.1 AWS Name 태그 (콘솔 표시명)
 
 ```
 {env}-{resource-type}-{purpose}[-{suffix}]
@@ -13,7 +15,7 @@
 | purpose | 역할/용도 | main, app, public, private |
 | suffix (선택) | AZ, 번호 등 구분 필요시 | 2a, 2c, 01 |
 
-### 리소스 타입 약어
+#### 리소스 타입 약어
 
 | AWS 리소스 | 약어 |
 |-----------|------|
@@ -36,7 +38,7 @@
 | Target Group | tg |
 | SSM Parameter | ssm |
 
-### Name 태그 예시
+#### Name 태그 예시
 
 ```
 prod-vpc-main
@@ -56,9 +58,7 @@ prod-s3-uploads
 prod-role-ec2-s3
 ```
 
----
-
-## Terraform 리소스명 (`resource "aws_xxx" "THIS"`)
+### 1.2 Terraform 리소스명 (`resource "aws_xxx" "THIS"`)
 
 ```
 {purpose}[_{suffix}]
@@ -78,9 +78,7 @@ resource "aws_security_group" "app" {}
 resource "aws_security_group" "rds" {}
 ```
 
----
-
-## S3 버킷명 (글로벌 고유)
+### 1.3 S3 버킷명 (글로벌 고유)
 
 ```
 {env}-tasteam-{purpose}
@@ -89,9 +87,7 @@ resource "aws_security_group" "rds" {}
 - 글로벌 고유 → 프로젝트명 포함
 - 예: `prod-tasteam-uploads`, `dev-tasteam-uploads`
 
----
-
-## IAM 리소스명
+### 1.4 IAM 리소스명
 
 ```
 {env}-tasteam-{purpose}
@@ -100,9 +96,7 @@ resource "aws_security_group" "rds" {}
 - 계정 레벨 → 프로젝트명 포함
 - 예: `prod-tasteam-ec2-s3-role`, `dev-tasteam-ec2-s3-role`
 
----
-
-## RDS Identifier
+### 1.5 RDS Identifier
 
 ```
 {env}-tasteam-{purpose}
@@ -111,9 +105,7 @@ resource "aws_security_group" "rds" {}
 - 리전 내 고유 → 프로젝트명 포함
 - 예: `prod-tasteam-main`, `dev-tasteam-main`
 
----
-
-## SSM Parameter Store 경로
+### 1.6 SSM Parameter Store 경로
 
 ```
 /{env}/tasteam/{service}/{parameter-name}
@@ -126,7 +118,7 @@ resource "aws_security_group" "rds" {}
 | service | 서비스/카테고리 | `spring`, `fastapi`, `monitoring` |
 | parameter-name | 파라미터명 (kebab-case) | `db-url`, `jwt-secret` |
 
-### 경로 예시
+#### 경로 예시
 
 ```
 /prod/tasteam/spring/db-url
@@ -135,13 +127,11 @@ resource "aws_security_group" "rds" {}
 /prod/tasteam/monitoring/grafana-admin-password
 ```
 
-- `SecureString` 타입은 AWS KMS 기본 키(`aws/ssm`)로 암호화
-- 값은 Terraform이 아닌 AWS 콘솔/CLI에서 직접 설정
-- Name 태그: `{env}-ssm-{service}-{parameter-name}` (슬래시를 하이픈으로 치환)
-
 ---
 
-## 공통 태그
+## 2. 태그 컨벤션
+
+### 2.1 공통 태그
 
 `Environment`, `Project`, `ManagedBy` 태그는 **provider `default_tags`** 로 자동 적용된다.
 각 environment의 `versions.tf`에서 한 번만 선언하면 모든 AWS 리소스에 일괄 적용된다.
@@ -160,6 +150,8 @@ provider "aws" {
 }
 ```
 
+### 2.2 리소스별 태그
+
 개별 리소스에는 **`Name` 태그만** 선언한다:
 
 ```hcl
@@ -170,3 +162,12 @@ tags = {
 
 > `default_tags`와 리소스 `tags`에 같은 키가 있으면 리소스의 값이 우선한다.
 
+---
+
+## 3. 운영 가이드
+
+### 3.1 SSM Parameter Store
+
+- `SecureString` 타입은 AWS KMS 기본 키(`aws/ssm`)로 암호화
+- 값은 Terraform이 아닌 AWS 콘솔/CLI에서 직접 설정
+- Name 태그: `{env}-ssm-{service}-{parameter-name}` (슬래시를 하이픈으로 치환)
