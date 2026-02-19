@@ -109,25 +109,34 @@ resource "aws_security_group" "rds" {}
 ### 1.6 SSM Parameter Store 경로
 
 ```
-/{env}/tasteam/{service}/{parameter-name}
+/{env}/tasteam/{service}/{parameter-key}
 ```
 
 | 세그먼트 | 규칙 | 예시 |
 |----------|------|------|
 | env | `prod`, `dev`, `stg` | prod |
 | tasteam | 프로젝트명 (고정) | tasteam |
-| service | 서비스/카테고리 | `spring`, `fastapi`, `monitoring` |
-| parameter-name | 파라미터명 (kebab-case) | `db-url`, `jwt-secret` |
+| service | 서비스 네임스페이스 | `backend`, `frontend`, `fastapi`, `monitoring` |
+| parameter-key | 서비스별 키 규칙 | 아래 표 참고 |
+
+#### 서비스별 키 규칙
+
+| service | 키 규칙 | 예시 |
+|--------|---------|------|
+| backend | `UPPER_SNAKE_CASE` | `DB_URL`, `JWT_SECRET` |
+| frontend | `UPPER_SNAKE_CASE` | `VITE_APP_ENV`, `VITE_API_BASE_URL` |
+| fastapi | `slash + kebab-case` | `openai-api-key`, `db-url` |
+| monitoring | `slash + kebab-case` | `grafana-admin-password` |
 
 #### 경로 예시
 
 ```
-/prod/tasteam/spring/db-url
-/prod/tasteam/spring/jwt-secret
+/prod/tasteam/backend/DB_URL
+/prod/tasteam/backend/JWT_SECRET
+/prod/tasteam/frontend/VITE_API_BASE_URL
 /prod/tasteam/fastapi/openai-api-key
 /prod/tasteam/monitoring/grafana-admin-password
 ```
-
 ---
 
 ## 2. 태그 컨벤션
@@ -172,3 +181,4 @@ tags = {
 - `SecureString` 타입은 AWS KMS 기본 키(`aws/ssm`)로 암호화
 - 값은 Terraform이 아닌 AWS 콘솔/CLI에서 직접 설정
 - Name 태그: `{env}-ssm-{service}-{parameter-name}` (슬래시를 하이픈으로 치환)
+- 키 네이밍 검증: `modules/ssm/variables.tf`의 `validation`에서 서비스별 패턴을 강제

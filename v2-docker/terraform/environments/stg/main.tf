@@ -34,72 +34,87 @@ module "ssm" {
 
   parameters = {
     # ── Spring Boot: DB ──
-    "DB_URL"      = { type = "SecureString", description = "PostgreSQL JDBC URL" }
-    "DB_USERNAME" = { type = "SecureString", description = "DB username" }
-    "DB_PASSWORD" = { type = "SecureString", description = "DB password" }
+    "backend/DB_URL" = { type = "SecureString", description = "PostgreSQL JDBC URL" }
+    "backend/DB_USERNAME" = { type = "SecureString", description = "DB username" }
+    "backend/DB_PASSWORD" = { type = "SecureString", description = "DB password" }
 
     # ── Spring Boot: Redis ──
-    "REDIS_HOST" = { type = "String", description = "Redis host" }
-    "REDIS_PORT" = { type = "String", description = "Redis port" }
+    "backend/REDIS_HOST" = { type = "String", description = "Redis host" }
+    "backend/REDIS_PORT" = { type = "String", description = "Redis port" }
 
     # ── Spring Boot: JWT ──
-    "JWT_SECRET"                   = { type = "SecureString", description = "JWT signing secret" }
-    "JWT_ACCESS_TOKEN_EXPIRATION"  = { type = "String", description = "Access token TTL (ms)" }
-    "JWT_REFRESH_TOKEN_EXPIRATION" = { type = "String", description = "Refresh token TTL (ms)" }
+    "backend/JWT_SECRET" = { type = "SecureString", description = "JWT signing secret" }
+    "backend/JWT_ACCESS_TOKEN_EXPIRATION" = { type = "String", description = "Access token TTL (ms)" }
+    "backend/JWT_REFRESH_TOKEN_EXPIRATION" = { type = "String", description = "Refresh token TTL (ms)" }
 
     # ── Spring Boot: OAuth2 ──
-    "GOOGLE_CLIENT_ID"     = { type = "SecureString", description = "Google OAuth client ID" }
-    "GOOGLE_CLIENT_SECRET" = { type = "SecureString", description = "Google OAuth client secret" }
-    "KAKAO_CLIENT_ID"      = { type = "SecureString", description = "Kakao OAuth client ID" }
-    "KAKAO_CLIENT_SECRET"  = { type = "SecureString", description = "Kakao OAuth client secret" }
+    "backend/GOOGLE_CLIENT_ID" = { type = "SecureString", description = "Google OAuth client ID" }
+    "backend/GOOGLE_CLIENT_SECRET" = { type = "SecureString", description = "Google OAuth client secret" }
+    "backend/KAKAO_CLIENT_ID" = { type = "SecureString", description = "Kakao OAuth client ID" }
+    "backend/KAKAO_CLIENT_SECRET" = { type = "SecureString", description = "Kakao OAuth client secret" }
 
     # ── Spring Boot: Storage ──
-    "STORAGE_TYPE"                         = { type = "String", description = "Storage type (s3/dummy)" }
-    "STORAGE_REGION"                       = { type = "String", description = "S3 region" }
-    "STORAGE_BUCKET"                       = { type = "String", description = "S3 bucket name" }
-    "STORAGE_BASE_URL"                     = { type = "String", description = "S3 base URL" }
-    "STORAGE_PRESIGNED_EXPIRATION_SECONDS" = { type = "String", description = "Presigned URL TTL (seconds)" }
-    "STORAGE_TEMP_UPLOAD_PREFIX"           = { type = "String", description = "Temp upload key prefix" }
+    "backend/STORAGE_TYPE" = { type = "String", description = "Storage type (s3/dummy)" }
+    "backend/STORAGE_REGION" = { type = "String", description = "S3 region" }
+    "backend/STORAGE_BUCKET" = { type = "String", description = "S3 bucket name" }
+    "backend/STORAGE_BASE_URL" = { type = "String", description = "S3 base URL" }
+    "backend/STORAGE_PRESIGNED_EXPIRATION_SECONDS" = { type = "String", description = "Presigned URL TTL (seconds)" }
+    "backend/STORAGE_TEMP_UPLOAD_PREFIX" = { type = "String", description = "Temp upload key prefix" }
 
     # ── Spring Boot: CORS ──
-    "CORS_ALLOWED_ORIGINS" = { type = "String", description = "CORS allowed origins (comma-separated)" }
-    "CORS_ALLOWED_HEADERS" = { type = "String", description = "CORS allowed headers (comma-separated)" }
-    "CORS_EXPOSED_HEADERS" = { type = "String", description = "CORS exposed headers (comma-separated)" }
-    "CORS_ALLOWED_METHODS" = { type = "String", description = "CORS allowed methods (comma-separated)" }
+    "backend/CORS_ALLOWED_ORIGINS" = { type = "String", description = "CORS allowed origins (comma-separated)" }
+    "backend/CORS_ALLOWED_HEADERS" = { type = "String", description = "CORS allowed headers (comma-separated)" }
+    "backend/CORS_EXPOSED_HEADERS" = { type = "String", description = "CORS exposed headers (comma-separated)" }
+    "backend/CORS_ALLOWED_METHODS" = { type = "String", description = "CORS allowed methods (comma-separated)" }
 
     # ── Spring Boot: File cleanup ──
-    "FILE_CLEANUP_TTL_SECONDS" = { type = "String", description = "File cleanup TTL (seconds)" }
-    "FILE_CLEANUP_FIXED_DELAY_MS" = { type = "String", description = "File cleanup fixed delay (ms)" }
+    "backend/FILE_CLEANUP_TTL_SECONDS" = { type = "String", description = "File cleanup TTL (seconds)" }
+    "backend/FILE_CLEANUP_FIXED_DELAY_MS" = { type = "String", description = "File cleanup fixed delay (ms)" }
 
     # ── Spring Boot: Naver Maps ──
-    "NAVER_MAPS_API_KEY_ID" = { type = "SecureString", description = "Naver Maps API key ID" }
-    "NAVER_MAPS_API_KEY"    = { type = "SecureString", description = "Naver Maps API key" }
+    "backend/NAVER_MAPS_API_KEY_ID" = { type = "SecureString", description = "Naver Maps API key ID" }
+    "backend/NAVER_MAPS_API_KEY" = { type = "SecureString", description = "Naver Maps API key" }
 
     # ── Spring Boot: Webhook ──
-    "WEBHOOK_ENABLED"          = { type = "String", description = "Webhook enabled flag" }
-    "WEBHOOK_PROVIDER"         = { type = "String", description = "Webhook provider" }
-    "DISCORD_WEBHOOK_URL"      = { type = "SecureString", description = "Discord webhook URL" }
-    "WEBHOOK_RETRY_MAX"        = { type = "String", description = "Webhook retry max attempts" }
-    "WEBHOOK_RETRY_BACKOFF"    = { type = "String", description = "Webhook retry backoff (ms)" }
-    "WEBHOOK_MIN_HTTP_STATUS"  = { type = "String", description = "Webhook minimum HTTP status to notify" }
+    "backend/WEBHOOK_ENABLED" = { type = "String", description = "Webhook enabled flag" }
+    "backend/WEBHOOK_PROVIDER" = { type = "String", description = "Webhook provider" }
+    "backend/DISCORD_WEBHOOK_URL" = { type = "SecureString", description = "Discord webhook URL" }
+    "backend/WEBHOOK_RETRY_MAX" = { type = "String", description = "Webhook retry max attempts" }
+    "backend/WEBHOOK_RETRY_BACKOFF" = { type = "String", description = "Webhook retry backoff (ms)" }
+    "backend/WEBHOOK_MIN_HTTP_STATUS" = { type = "String", description = "Webhook minimum HTTP status to notify" }
 
     # ── Spring Boot: Admin ──
-    "ADMIN_USERNAME" = { type = "SecureString", description = "Admin username" }
-    "ADMIN_PASSWORD" = { type = "SecureString", description = "Admin password" }
+    "backend/ADMIN_USERNAME" = { type = "SecureString", description = "Admin username" }
+    "backend/ADMIN_PASSWORD" = { type = "SecureString", description = "Admin password" }
 
     # ── Spring Boot: Flyway ──
-    "FLYWAY_USER"     = { type = "SecureString", description = "Flyway DB user" }
-    "FLYWAY_PASSWORD" = { type = "SecureString", description = "Flyway DB password" }
+    "backend/FLYWAY_USER" = { type = "SecureString", description = "Flyway DB user" }
+    "backend/FLYWAY_PASSWORD" = { type = "SecureString", description = "Flyway DB password" }
 
     # ── Spring Boot: Firebase ──
-    "FIREBASE_ENABLED"                = { type = "String", description = "Firebase enable flag" }
-    "FIREBASE_PROJECT_ID"             = { type = "String", description = "Firebase project ID" }
-    "FIREBASE_SERVICE_ACCOUNT_BASE64" = { type = "SecureString", description = "Firebase service account (base64)" }
+    "backend/FIREBASE_ENABLED" = { type = "String", description = "Firebase enable flag" }
+    "backend/FIREBASE_PROJECT_ID" = { type = "String", description = "Firebase project ID" }
+    "backend/FIREBASE_SERVICE_ACCOUNT_BASE64" = { type = "SecureString", description = "Firebase service account (base64)" }
 
     # ── Spring Boot: Logging ──
-    "LOG_FILE_PATH"     = { type = "String", description = "Log file path" }
-    "LOG_MAX_FILE_SIZE" = { type = "String", description = "Log max file size" }
-    "LOG_MAX_HISTORY"   = { type = "String", description = "Log max history" }
+    "backend/LOG_FILE_PATH" = { type = "String", description = "Log file path" }
+    "backend/LOG_MAX_FILE_SIZE" = { type = "String", description = "Log max file size" }
+    "backend/LOG_MAX_HISTORY" = { type = "String", description = "Log max history" }
+
+    # ── Frontend (Vite) ──
+    "frontend/VITE_APP_ENV"                  = { type = "String", description = "Frontend app environment" }
+    "frontend/VITE_APP_URL"                  = { type = "String", description = "Frontend app base URL" }
+    "frontend/VITE_API_BASE_URL"             = { type = "String", description = "Frontend API base URL" }
+    "frontend/VITE_DUMMY_DATA"               = { type = "String", description = "Frontend dummy data toggle" }
+    "frontend/VITE_AUTH_DEBUG"               = { type = "String", description = "Frontend auth debug toggle" }
+    "frontend/VITE_LOG_LEVEL"                = { type = "String", description = "Frontend log level" }
+    "frontend/VITE_FIREBASE_API_KEY"         = { type = "String", description = "Firebase API key" }
+    "frontend/VITE_FIREBASE_AUTH_DOMAIN"     = { type = "String", description = "Firebase auth domain" }
+    "frontend/VITE_FIREBASE_PROJECT_ID"      = { type = "String", description = "Firebase project ID" }
+    "frontend/VITE_FIREBASE_STORAGE_BUCKET"  = { type = "String", description = "Firebase storage bucket" }
+    "frontend/VITE_FIREBASE_MESSAGING_SENDER_ID" = { type = "String", description = "Firebase messaging sender ID" }
+    "frontend/VITE_FIREBASE_APP_ID"          = { type = "String", description = "Firebase app ID" }
+    "frontend/VITE_FIREBASE_VAPID_KEY"       = { type = "String", description = "Firebase VAPID key" }
 
     # ── FastAPI ──
     "fastapi/openai-api-key" = { type = "SecureString", description = "OpenAI API key" }
