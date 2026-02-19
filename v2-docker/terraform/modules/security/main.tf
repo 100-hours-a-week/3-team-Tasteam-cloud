@@ -108,3 +108,58 @@ resource "aws_security_group" "redis" {
     Name = "${var.environment}-sg-redis"
   }
 }
+
+# ──────────────────────────────────────────────
+# Monitoring Security Group — PLG 스택용
+# ──────────────────────────────────────────────
+
+resource "aws_security_group" "monitoring" {
+  count = var.enable_monitoring ? 1 : 0
+
+  description = "Security group for monitoring server (PLG stack)"
+  name        = "${var.environment}-sg-monitoring"
+  vpc_id      = var.vpc_id
+
+  egress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+  }
+
+  ingress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    description = "SSH"
+  }
+
+  ingress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    description = "Grafana"
+  }
+
+  ingress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 3100
+    to_port     = 3100
+    protocol    = "tcp"
+    description = "Loki"
+  }
+
+  ingress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 9090
+    to_port     = 9090
+    protocol    = "tcp"
+    description = "Prometheus"
+  }
+
+  tags = {
+    Name = "${var.environment}-sg-monitoring"
+  }
+}

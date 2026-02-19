@@ -19,8 +19,44 @@ module "vpc" {
 module "security" {
   source = "../../modules/security"
 
-  environment = var.environment
-  vpc_id      = module.vpc.vpc_id
+  environment       = var.environment
+  vpc_id            = module.vpc.vpc_id
+  enable_monitoring = true
+}
+
+# ──────────────────────────────────────────────
+# AMI — Docker Ubuntu
+# ──────────────────────────────────────────────
+
+data "aws_ami" "docker_base" {
+  most_recent = true
+  owners      = ["self"]
+
+  filter {
+    name   = "name"
+    values = ["shared-ami-docker-*"]
+  }
+
+  filter {
+    name   = "tag:Version"
+    values = ["v1.0"]
+  }
+}
+
+# ──────────────────────────────────────────────
+# EC2 — Monitoring (PLG Stack)
+# ──────────────────────────────────────────────
+
+module "ec2_monitoring" {
+  source = "../../modules/ec2"
+
+  environment        = var.environment
+  purpose            = "monitoring"
+  instance_type      = "t3.medium"
+  ami_id             = data.aws_ami.docker_base.id
+  subnet_id          = module.vpc.private_subnet_ids[0]
+  security_group_ids = [module.security.monitoring_sg_id]
+  key_name           = var.key_name
 }
 
 # ──────────────────────────────────────────────

@@ -9,3 +9,9 @@ variable "environment" {
   type        = string
   default     = "shared"
 }
+
+variable "key_name" {
+  description = "EC2 key pair name for SSH access"
+  type        = string
+  default     = null
+}
