@@ -125,3 +125,33 @@ module "ssm" {
     "monitoring/grafana-admin-password" = { type = "SecureString", description = "Grafana admin password" }
   }
 }
+
+# ──────────────────────────────────────────────
+# AMI — fck-nat
+# ──────────────────────────────────────────────
+
+data "aws_ami" "fck_nat" {
+  most_recent = true
+  owners      = ["568608671756"]
+
+  filter {
+    name   = "name"
+    values = ["fck-nat-al2023-*-arm64-*"]
+  }
+}
+
+# ──────────────────────────────────────────────
+# NAT Instance
+# ──────────────────────────────────────────────
+
+module "nat" {
+  source = "../../modules/nat"
+
+  environment            = var.environment
+  vpc_id                 = module.vpc.vpc_id
+  vpc_cidr               = module.vpc.vpc_cidr_block
+  public_subnet_id       = module.vpc.public_subnet_ids[0]
+  private_route_table_id = module.vpc.private_route_table_id
+  ami_id                 = data.aws_ami.fck_nat.id
+  instance_type          = "t4g.nano"
+}
