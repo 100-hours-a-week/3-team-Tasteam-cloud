@@ -22,3 +22,18 @@ output "ec2_caddy_public_ip" {
   description = "Dev Caddy EC2 public IP"
   value       = module.ec2_caddy.public_ip
 }
+
+output "ec2_spring_id" {
+  description = "Dev Spring Boot EC2 instance ID"
+  value       = module.ec2_spring.instance_id
+}
+
+output "ec2_spring_private_ip" {
+  description = "Dev Spring Boot EC2 private IP"
+  value       = module.ec2_spring.private_ip
+}
+
+output "ec2_spring_key_pair_name" {
+  description = "Dev Spring Boot EC2 key pair name"
+  value       = module.ec2_spring.key_pair_name
+}

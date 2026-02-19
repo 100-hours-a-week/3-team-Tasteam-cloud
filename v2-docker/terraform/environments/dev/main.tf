@@ -146,6 +146,60 @@ module "ssm" {
 }
 
 # ──────────────────────────────────────────────
+# Security Group — Spring Boot 전용
+# ──────────────────────────────────────────────
+
+resource "aws_security_group" "spring" {
+  description = "Security group for Spring Boot application server"
+  name        = "${var.environment}-sg-spring"
+  vpc_id      = module.vpc.vpc_id
+
+  egress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+  }
+
+  ingress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    description = "SSH"
+  }
+
+  ingress {
+    security_groups = [module.security.app_sg_id]
+    from_port       = 8080
+    to_port         = 8080
+    protocol        = "tcp"
+    description     = "Spring Boot from Caddy only"
+  }
+
+  tags = {
+    Name = "${var.environment}-sg-spring"
+  }
+}
+
+# ──────────────────────────────────────────────
+# EC2 — Spring Boot Application
+# ──────────────────────────────────────────────
+
+module "ec2_spring" {
+  source = "../../modules/ec2"
+
+  environment        = var.environment
+  purpose            = "spring"
+  instance_type      = "t3.small"
+  ami_id             = data.aws_ami.docker_base.id
+  subnet_id          = module.vpc.private_subnet_ids[0]
+  security_group_ids          = [aws_security_group.spring.id]
+  associate_public_ip_address = false
+  manage_key_pair             = true
+}
+
+# ──────────────────────────────────────────────
 # AMI — fck-nat
 # ──────────────────────────────────────────────
 
