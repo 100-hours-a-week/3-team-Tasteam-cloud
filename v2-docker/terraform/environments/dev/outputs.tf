@@ -12,3 +12,13 @@ output "private_route_table_id" {
   description = "Dev private route table ID"
   value       = module.vpc.private_route_table_id
 }
+
+output "ec2_caddy_id" {
+  description = "Dev Caddy EC2 instance ID"
+  value       = module.ec2_caddy.instance_id
+}
+
+output "ec2_caddy_public_ip" {
+  description = "Dev Caddy EC2 public IP"
+  value       = module.ec2_caddy.public_ip
+}

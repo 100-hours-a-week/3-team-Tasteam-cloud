@@ -24,6 +24,41 @@ module "security" {
 }
 
 # ──────────────────────────────────────────────
+# AMI — Docker Ubuntu
+# ──────────────────────────────────────────────
+
+data "aws_ami" "docker_base" {
+  most_recent = true
+  owners      = ["self"]
+
+  filter {
+    name   = "name"
+    values = ["shared-ami-docker-*"]
+  }
+
+  filter {
+    name   = "tag:Version"
+    values = ["v1.0"]
+  }
+}
+
+# ──────────────────────────────────────────────
+# EC2 — Caddy (Reverse Proxy)
+# ──────────────────────────────────────────────
+
+module "ec2_caddy" {
+  source = "../../modules/ec2"
+
+  environment                 = var.environment
+  purpose                     = "caddy"
+  instance_type               = "t3.micro"
+  ami_id                      = data.aws_ami.docker_base.id
+  subnet_id                   = module.vpc.public_subnet_ids[0]
+  security_group_ids          = [module.security.app_sg_id]
+  associate_public_ip_address = true
+}
+
+# ──────────────────────────────────────────────
 # SSM Parameter Store
 # ──────────────────────────────────────────────
 
