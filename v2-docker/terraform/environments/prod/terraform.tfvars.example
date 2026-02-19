@@ -1,2 +1,1 @@
 aws_region = "ap-northeast-2"
-# key_name = "tasteam-prod"  # EC2 key pair 이름 (선택)

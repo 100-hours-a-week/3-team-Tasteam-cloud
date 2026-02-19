@@ -123,8 +123,8 @@ module "ec2_caddy" {
   ami_id                      = data.aws_ami.docker_base.id
   subnet_id                   = module.vpc.public_subnet_ids[0]
   security_group_ids          = [module.security.app_sg_id]
-  key_name                    = var.key_name
   associate_public_ip_address = true
+  manage_key_pair             = true
 }
 
 # ──────────────────────────────────────────────

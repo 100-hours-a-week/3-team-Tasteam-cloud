@@ -36,6 +36,7 @@
 | CloudFront | cf |
 | Load Balancer | alb / nlb |
 | Target Group | tg |
+| Key Pair | kp |
 | SSM Parameter | ssm |
 
 #### Name 태그 예시

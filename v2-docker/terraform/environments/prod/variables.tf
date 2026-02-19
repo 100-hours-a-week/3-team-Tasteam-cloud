@@ -9,9 +9,3 @@ variable "environment" {
   type        = string
   default     = "prod"
 }
-
-variable "key_name" {
-  description = "EC2 key pair name for SSH access"
-  type        = string
-  default     = null
-}

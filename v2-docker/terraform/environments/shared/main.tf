@@ -56,7 +56,7 @@ module "ec2_monitoring" {
   ami_id             = data.aws_ami.docker_base.id
   subnet_id          = module.vpc.private_subnet_ids[0]
   security_group_ids = [module.security.monitoring_sg_id]
-  key_name           = var.key_name
+  manage_key_pair    = true
 }
 
 # ──────────────────────────────────────────────

@@ -29,9 +29,21 @@ variable "security_group_ids" {
 }
 
 variable "key_name" {
-  description = "EC2 key pair name for SSH access"
+  description = "외부 제공 EC2 key pair name (manage_key_pair=false 시 사용)"
   type        = string
   default     = null
+}
+
+variable "manage_key_pair" {
+  description = "true 시 tls_private_key + aws_key_pair를 모듈 내에서 자동 생성"
+  type        = bool
+  default     = false
+}
+
+variable "private_key_output_dir" {
+  description = "생성된 private key(.pem) 저장 디렉토리 절대 경로"
+  type        = string
+  default     = "~/.ssh"
 }
 
 variable "root_volume_size" {
