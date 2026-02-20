@@ -207,7 +207,7 @@ module "ec2_spring" {
   environment                 = var.environment
   purpose                     = "spring"
   instance_type               = "t3.small"
-  ami_id                      = data.aws_ami.docker_base.id
+  ami_id                      = "ami-00b6cd96f80a61923"
   subnet_id                   = module.vpc.private_subnet_ids[0]
   security_group_ids          = [aws_security_group.spring.id]
   associate_public_ip_address = false
