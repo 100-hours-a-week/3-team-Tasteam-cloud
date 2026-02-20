@@ -46,6 +46,12 @@ variable "private_key_output_dir" {
   default     = "~/.ssh"
 }
 
+variable "iam_instance_profile" {
+  description = "EC2 instance profile name to attach"
+  type        = string
+  default     = null
+}
+
 variable "root_volume_size" {
   description = "Root EBS volume size in GB"
   type        = number

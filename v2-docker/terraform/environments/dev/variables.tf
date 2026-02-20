@@ -9,3 +9,15 @@ variable "environment" {
   type        = string
   default     = "dev"
 }
+
+variable "codedeploy_app_name" {
+  description = "CodeDeploy application name for backend"
+  type        = string
+  default     = "tasteam-backend-dev"
+}
+
+variable "codedeploy_deployment_group_name" {
+  description = "CodeDeploy deployment group name for backend"
+  type        = string
+  default     = "tasteam-backend-dev-dg"
+}

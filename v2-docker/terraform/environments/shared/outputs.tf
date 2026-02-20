@@ -22,3 +22,23 @@ output "ec2_monitoring_private_key_path" {
   description = "Shared monitoring EC2 private key 로컬 파일 경로"
   value       = module.ec2_monitoring.private_key_path
 }
+
+output "github_actions_deploy_role_arn" {
+  description = "GitHub Actions deploy role ARN"
+  value       = aws_iam_role.github_actions_deploy.arn
+}
+
+output "codedeploy_artifact_bucket_name" {
+  description = "S3 bucket name for CodeDeploy artifacts"
+  value       = aws_s3_bucket.codedeploy_artifacts.bucket
+}
+
+output "ecr_repository_backend_name" {
+  description = "Backend ECR repository name"
+  value       = aws_ecr_repository.backend.name
+}
+
+output "ecr_repository_backend_url" {
+  description = "Backend ECR repository URL"
+  value       = aws_ecr_repository.backend.repository_url
+}

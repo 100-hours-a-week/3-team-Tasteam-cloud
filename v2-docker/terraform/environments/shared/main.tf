@@ -134,3 +134,157 @@ module "peering_dev" {
   accepter_cidr            = data.terraform_remote_state.dev.outputs.vpc_cidr_block
   accepter_route_table_id  = data.terraform_remote_state.dev.outputs.private_route_table_id
 }
+
+# ──────────────────────────────────────────────
+# S3 — CodeDeploy Artifact Bucket
+# ──────────────────────────────────────────────
+
+resource "aws_s3_bucket" "codedeploy_artifacts" {
+  bucket = var.codedeploy_artifact_bucket_name
+
+  tags = {
+    Name = "${var.environment}-codedeploy-artifacts"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "codedeploy_artifacts" {
+  bucket = aws_s3_bucket.codedeploy_artifacts.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "codedeploy_artifacts" {
+  bucket = aws_s3_bucket.codedeploy_artifacts.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "codedeploy_artifacts" {
+  bucket = aws_s3_bucket.codedeploy_artifacts.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# ──────────────────────────────────────────────
+# IAM — GitHub Actions (Single Role for dev/stg/prod)
+# ──────────────────────────────────────────────
+
+data "aws_caller_identity" "current" {}
+
+resource "aws_iam_openid_connect_provider" "github_actions" {
+  count = var.github_oidc_provider_arn == "" ? 1 : 0
+
+  url             = "https://token.actions.githubusercontent.com"
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+}
+
+locals {
+  github_oidc_provider_arn_resolved = var.github_oidc_provider_arn != "" ? var.github_oidc_provider_arn : aws_iam_openid_connect_provider.github_actions[0].arn
+}
+
+resource "aws_iam_role" "github_actions_deploy" {
+  name = "tasteam-github-actions-deploy-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = local.github_oidc_provider_arn_resolved
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+        }
+        StringLike = {
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:*"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "github_actions_deploy" {
+  name = "tasteam-github-actions-deploy-policy"
+  role = aws_iam_role.github_actions_deploy.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "codedeploy:CreateDeployment",
+          "codedeploy:GetDeployment",
+          "codedeploy:GetDeploymentGroup"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject"
+        ]
+        Resource = "arn:aws:s3:::${var.codedeploy_artifact_bucket_name}/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket"
+        ]
+        Resource = "arn:aws:s3:::${var.codedeploy_artifact_bucket_name}"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:CompleteLayerUpload",
+          "ecr:InitiateLayerUpload",
+          "ecr:PutImage",
+          "ecr:UploadLayerPart"
+        ]
+        Resource = "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/*"
+      }
+    ]
+  })
+}
+
+# ──────────────────────────────────────────────
+# ECR — Backend Repository
+# ──────────────────────────────────────────────
+
+resource "aws_ecr_repository" "backend" {
+  name                 = var.ecr_repository_backend_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = {
+    Name = "${var.environment}-ecr-backend"
+  }
+}

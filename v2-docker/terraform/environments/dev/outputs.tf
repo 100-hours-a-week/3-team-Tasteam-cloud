@@ -37,3 +37,13 @@ output "ec2_spring_key_pair_name" {
   description = "Dev Spring Boot EC2 key pair name"
   value       = module.ec2_spring.key_pair_name
 }
+
+output "codedeploy_app_name" {
+  description = "CodeDeploy application name for dev backend"
+  value       = aws_codedeploy_app.backend.name
+}
+
+output "codedeploy_deployment_group_name" {
+  description = "CodeDeploy deployment group name for dev backend"
+  value       = aws_codedeploy_deployment_group.backend_dev.deployment_group_name
+}

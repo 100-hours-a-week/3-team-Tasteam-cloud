@@ -41,7 +41,8 @@ resource "aws_instance" "nat" {
   vpc_security_group_ids      = [aws_security_group.nat.id]
   key_name                    = var.key_name
   source_dest_check           = false
-  associate_public_ip_address = false
+  # 기존 NAT 인스턴스(state)가 public IP 할당=true 상태라 강제 교체를 피하기 위해 유지
+  associate_public_ip_address = true
 
   root_block_device {
     volume_size           = var.root_volume_size
