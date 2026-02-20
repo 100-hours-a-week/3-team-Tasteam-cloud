@@ -5,5 +5,6 @@ terraform {
     region       = "ap-northeast-2"
     profile      = "tasteam-v2"
     use_lockfile = true
+    encrypt      = true
   }
 }
