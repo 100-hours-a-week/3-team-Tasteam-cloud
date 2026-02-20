@@ -77,6 +77,8 @@ terraform/
 | Target Group | tg |
 | Key Pair | kp |
 | SSM Parameter | ssm |
+| Launch Template | lt |
+| Auto Scaling Group | asg |
 
 #### Name 태그 예시
 

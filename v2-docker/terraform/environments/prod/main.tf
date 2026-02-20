@@ -162,6 +162,28 @@ module "ec2_caddy" {
 }
 
 # ──────────────────────────────────────────────
+# ASG — Spring Boot Backend
+# ──────────────────────────────────────────────
+
+module "asg_spring" {
+  source = "../../modules/asg"
+
+  environment        = var.environment
+  purpose            = "spring"
+  instance_type      = "t3.small"
+  ami_id             = data.aws_ami.docker_base.id
+  subnet_ids         = [module.vpc.private_subnet_ids[0]]
+  security_group_ids = [module.security.app_sg_id]
+  aws_region         = var.aws_region
+
+  min_size     = 1
+  desired_size = 1
+  max_size     = 2
+
+  app_port = 8080
+}
+
+# ──────────────────────────────────────────────
 # Data Sources for V1 (Legacy)
 # ──────────────────────────────────────────────
 

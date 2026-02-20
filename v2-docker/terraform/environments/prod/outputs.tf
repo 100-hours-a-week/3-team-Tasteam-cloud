@@ -22,3 +22,17 @@ output "ec2_caddy_private_key_path" {
   description = "Prod caddy EC2 private key 로컬 파일 경로"
   value       = module.ec2_caddy.private_key_path
 }
+
+# ──────────────────────────────────────────────
+# ASG Spring
+# ──────────────────────────────────────────────
+
+output "asg_spring_name" {
+  description = "Spring Boot ASG 이름"
+  value       = module.asg_spring.asg_name
+}
+
+output "asg_spring_arn" {
+  description = "Spring Boot ASG ARN"
+  value       = module.asg_spring.asg_arn
+}
