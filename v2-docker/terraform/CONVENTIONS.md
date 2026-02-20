@@ -266,17 +266,17 @@ tags = {
 ### 5.1 `variable` 디스크립션
 
 - **필수**: 모든 `variable` 블록에 `description`을 작성한다.
-- **언어**: 영문을 기본으로 하되, 한국어 보충 설명이 필요하면 ` — ` 뒤에 덧붙인다.
+- **언어**: **한글**을 기본으로 한다. AWS 서비스명·enum 값 등 고유명사는 영문 병기를 허용한다.
 - **내용**: 변수의 역할·제약·기본값 이유를 간결하게 설명한다.
 
 ```hcl
-# Good — 영문 기본
+# Good — 한글 기본
 variable "environment" {
-  description = "Environment name (prod, dev, stg, shared)"
+  description = "환경 이름 (prod, dev, stg, shared)"
   type        = string
 }
 
-# Good — 한국어 보충 설명 추가
+# Good — 한국어 + 고유명사 영문 병기
 variable "manage_key_pair" {
   description = "true 시 tls_private_key + aws_key_pair를 모듈 내에서 자동 생성"
   type        = bool
@@ -292,18 +292,18 @@ variable "ami_id" {
 ### 5.2 `output` 디스크립션
 
 - **필수**: 모든 `output` 블록에 `description`을 작성한다.
-- 출력값이 어떤 리소스의 어떤 속성인지 명시한다.
+- 출력값이 어떤 리소스의 어떤 속성인지 **한글**로 명시한다.
 
 ```hcl
 # Good
 output "vpc_id" {
-  description = "VPC ID"
+  description = "VPC 아이디"
   value       = aws_vpc.main.id
 }
 
 # Good — 조건부 출력인 경우 조건 명시
 output "key_pair_name" {
-  description = "AWS Key Pair name (manage_key_pair=false 시 null)"
+  description = "AWS 키 페어 이름 (manage_key_pair=false 시 null)"
   value       = one(aws_key_pair.this[*].key_name)
 }
 ```
@@ -317,7 +317,7 @@ output "key_pair_name" {
 ```hcl
 # Good
 resource "aws_security_group" "app" {
-  description = "Security group for application server"
+  description = "애플리케이션 서버 보안 그룹"
   ...
 }
 
@@ -343,7 +343,7 @@ resource "aws_security_group" "app" {
 ```
 
 - 구분자 줄: `#` + 공백 + `─` 46개
-- 제목 줄: `# {제목}` — 제목은 **영문** 또는 **영문 + 한국어 보충**
+- 제목 줄: `# {제목}` — 제목은 **한글**을 기본으로 한다. AWS 서비스명 등 고유명사는 영문 병기 허용
 - 선택적으로 제목 아래에 보충 설명 줄을 추가할 수 있다.
 - 구분자 뒤에는 빈 줄 하나를 둔다.
 
@@ -403,3 +403,40 @@ vpc_id = aws_vpc.main.id  # VPC의 ID를 참조
 # TODO: prod 배포 전 AMI ID를 data source로 교체
 # NOTE: 이 값은 Terraform이 아닌 AWS 콘솔에서 직접 설정
 ```
+
+---
+
+## 7. 커밋 메시지 및 PR 규칙
+
+### 7.1 커밋 메시지
+
+모든 커밋 메시지는 **한글**로 작성한다.
+
+```
+{type}({scope}): {제목}
+
+{본문 (선택)}
+```
+
+| 필드 | 규칙 |
+|------|------|
+| type | 영문 소문자 (`feat`, `fix`, `docs`, `refactor`, `chore` 등) |
+| scope | 변경 범위 — 생략 가능 (예: `v2`, `modules/vpc`, `environments/prod`) |
+| 제목 | **한글** 50자 이내, 명령형 종결 (예: `VPC 모듈 변수 추가`) |
+| 본문 | 필요 시 **한글**로 상세 설명 작성 |
+
+```
+# Good
+feat(modules/vpc): 프라이빗 서브넷 가용 영역 변수 추가
+fix(environments/prod): SSM 파라미터 키 오타 수정
+docs(v2): 파일명 컨벤션 섹션 추가
+
+# Bad
+feat: add private subnet AZ variable
+```
+
+### 7.2 PR 제목 및 설명
+
+- PR 제목과 본문은 **한글**로 작성한다.
+- PR 제목 형식은 커밋 메시지 제목 규칙과 동일하다.
+- PR 본문에는 변경 이유·영향 범위·확인 방법을 작성한다.
