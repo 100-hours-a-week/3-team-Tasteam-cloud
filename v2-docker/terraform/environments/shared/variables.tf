@@ -13,7 +13,7 @@ variable "environment" {
 variable "github_repository" {
   description = "GitHub repository in owner/repo format"
   type        = string
-  default     = "kimsj/3-team-Tasteam-be"
+  default     = "100-hours-a-week/3-team-Tasteam-be"
 }
 
 variable "codedeploy_artifact_bucket_name" {
