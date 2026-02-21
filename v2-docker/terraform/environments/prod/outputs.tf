@@ -36,3 +36,12 @@ output "asg_spring_arn" {
   description = "Spring Boot ASG ARN"
   value       = module.asg_spring.asg_arn
 }
+
+# ──────────────────────────────────────────────
+# NAT Instance
+# ──────────────────────────────────────────────
+
+output "nat_public_ip" {
+  description = "NAT 인스턴스 EIP (고정 공인 IP)"
+  value       = module.nat.public_ip
+}

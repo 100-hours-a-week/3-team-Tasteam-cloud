@@ -79,6 +79,7 @@ terraform/
 | SSM Parameter | ssm |
 | Launch Template | lt |
 | Auto Scaling Group | asg |
+| VPC Endpoint | vpce |
 
 #### Name 태그 예시
 
