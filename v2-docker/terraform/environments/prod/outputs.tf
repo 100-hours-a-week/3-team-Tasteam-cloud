@@ -45,3 +45,12 @@ output "nat_public_ip" {
   description = "NAT 인스턴스 EIP (고정 공인 IP)"
   value       = module.nat.public_ip
 }
+
+# ──────────────────────────────────────────────
+# Cloud Map
+# ──────────────────────────────────────────────
+
+output "cloud_map_service_dns" {
+  description = "Caddy upstream에 사용할 Cloud Map DNS 이름"
+  value       = module.cloud_map.dns_name
+}

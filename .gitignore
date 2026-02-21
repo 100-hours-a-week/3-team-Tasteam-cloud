@@ -5,6 +5,9 @@
 *.tfvars
 terraform.tfstate.d/
 
+# Lambda build artifacts
+v2-docker/terraform/modules/lambda-sd/builds/
+
 # MacOS
 .DS_Store
 .idea

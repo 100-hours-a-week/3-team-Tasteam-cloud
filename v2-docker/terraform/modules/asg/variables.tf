@@ -74,3 +74,15 @@ variable "root_volume_size" {
   type        = number
   default     = 20
 }
+
+variable "enable_lifecycle_hooks" {
+  description = "true 시 LAUNCHING/TERMINATING lifecycle hook 생성 — 서비스 디스커버리 연동 시 필요"
+  type        = bool
+  default     = false
+}
+
+variable "lifecycle_hook_timeout" {
+  description = "Lifecycle hook heartbeat timeout (초) — Lambda 처리 시간 고려해 설정"
+  type        = number
+  default     = 300
+}

@@ -227,6 +227,35 @@ module "asg_spring" {
   max_size     = 2
 
   app_port = 8080
+
+  # 서비스 디스커버리 활성화
+  enable_lifecycle_hooks = true
+}
+
+# ──────────────────────────────────────────────
+# Cloud Map — 내부 서비스 디스커버리 네임스페이스
+# ──────────────────────────────────────────────
+
+module "cloud_map" {
+  source = "../../modules/cloud-map"
+
+  environment  = var.environment
+  vpc_id       = module.vpc.vpc_id
+  service_name = "spring"
+}
+
+# ──────────────────────────────────────────────
+# Lambda — 서비스 디스커버리 (ASG lifecycle → Cloud Map)
+# ──────────────────────────────────────────────
+
+module "lambda_sd_spring" {
+  source = "../../modules/lambda-sd"
+
+  environment          = var.environment
+  purpose              = "spring"
+  asg_name             = module.asg_spring.asg_name
+  cloud_map_service_id = module.cloud_map.service_id
+  app_port             = 8080
 }
 
 # ──────────────────────────────────────────────
