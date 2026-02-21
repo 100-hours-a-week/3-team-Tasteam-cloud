@@ -227,7 +227,8 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
         Action = [
           "codedeploy:CreateDeployment",
           "codedeploy:GetDeployment",
-          "codedeploy:GetDeploymentGroup"
+          "codedeploy:GetDeploymentGroup",
+          "codedeploy:GetDeploymentConfig"
         ]
         Resource = "*"
       },
