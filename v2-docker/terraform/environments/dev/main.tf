@@ -293,6 +293,33 @@ resource "aws_iam_role_policy" "dev_backend_ec2" {
       {
         Effect = "Allow"
         Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion"
+        ]
+        Resource = "arn:aws:s3:::tasteam-v2-codedeploy-artifacts/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+          "s3:GetBucketVersioning"
+        ]
+        Resource = "arn:aws:s3:::tasteam-v2-codedeploy-artifacts"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "codedeploy-commands-secure:GetDeploymentSpecification",
+          "codedeploy-commands-secure:PollHostCommand",
+          "codedeploy-commands-secure:PutHostCommandAcknowledgement",
+          "codedeploy-commands-secure:PutHostCommandComplete"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "kms:Decrypt"
         ]
         Resource = "*"
