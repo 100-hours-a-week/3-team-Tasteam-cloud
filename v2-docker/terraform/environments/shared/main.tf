@@ -228,7 +228,12 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
           "codedeploy:CreateDeployment",
           "codedeploy:GetDeployment",
           "codedeploy:GetDeploymentGroup",
-          "codedeploy:GetDeploymentConfig"
+          "codedeploy:GetDeploymentConfig",
+          "codedeploy:RegisterApplicationRevision",
+          "codedeploy:GetApplicationRevision",
+          "codedeploy:GetApplication",
+          "codedeploy:ListDeployments",
+          "codedeploy:ListDeploymentGroups"
         ]
         Resource = "*"
       },
@@ -236,14 +241,16 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
         Effect = "Allow"
         Action = [
           "s3:PutObject",
-          "s3:GetObject"
+          "s3:GetObject",
+          "s3:AbortMultipartUpload"
         ]
         Resource = "arn:aws:s3:::${var.codedeploy_artifact_bucket_name}/*"
       },
       {
         Effect = "Allow"
         Action = [
-          "s3:ListBucket"
+          "s3:ListBucket",
+          "s3:GetBucketLocation"
         ]
         Resource = "arn:aws:s3:::${var.codedeploy_artifact_bucket_name}"
       },
@@ -265,7 +272,8 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
           "ecr:GetDownloadUrlForLayer",
           "ecr:InitiateLayerUpload",
           "ecr:PutImage",
-          "ecr:UploadLayerPart"
+          "ecr:UploadLayerPart",
+          "ecr:ListImages"
         ]
         Resource = "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/*"
       }
