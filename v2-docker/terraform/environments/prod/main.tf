@@ -34,29 +34,31 @@ module "ssm" {
 
   parameters = {
     # ── Spring Boot: DB ──
+    # 참고: DB_URL, DB_USERNAME, DB_PASSWORD는 이 파일 하단(RDS 모듈 부근)에
+    # aws_ssm_parameter 리소스를 통해 동적으로 생성 및 저장되도록 구성되어 있습니다.
 
     # ── Spring Boot: Redis ──
     "backend/REDIS_HOST" = { type = "String", description = "Redis host" }
     "backend/REDIS_PORT" = { type = "String", description = "Redis port" }
 
     # ── Spring Boot: JWT ──
-    "backend/JWT_SECRET" = { type = "SecureString", description = "JWT signing secret" }
-    "backend/JWT_ACCESS_TOKEN_EXPIRATION" = { type = "String", description = "Access token TTL (ms)" }
+    "backend/JWT_SECRET"                   = { type = "SecureString", description = "JWT signing secret" }
+    "backend/JWT_ACCESS_TOKEN_EXPIRATION"  = { type = "String", description = "Access token TTL (ms)" }
     "backend/JWT_REFRESH_TOKEN_EXPIRATION" = { type = "String", description = "Refresh token TTL (ms)" }
 
     # ── Spring Boot: OAuth2 ──
-    "backend/GOOGLE_CLIENT_ID" = { type = "SecureString", description = "Google OAuth client ID" }
+    "backend/GOOGLE_CLIENT_ID"     = { type = "SecureString", description = "Google OAuth client ID" }
     "backend/GOOGLE_CLIENT_SECRET" = { type = "SecureString", description = "Google OAuth client secret" }
-    "backend/KAKAO_CLIENT_ID" = { type = "SecureString", description = "Kakao OAuth client ID" }
-    "backend/KAKAO_CLIENT_SECRET" = { type = "SecureString", description = "Kakao OAuth client secret" }
+    "backend/KAKAO_CLIENT_ID"      = { type = "SecureString", description = "Kakao OAuth client ID" }
+    "backend/KAKAO_CLIENT_SECRET"  = { type = "SecureString", description = "Kakao OAuth client secret" }
 
     # ── Spring Boot: Storage ──
-    "backend/STORAGE_TYPE" = { type = "String", description = "Storage type (s3/dummy)" }
-    "backend/STORAGE_REGION" = { type = "String", description = "S3 region" }
-    "backend/STORAGE_BUCKET" = { type = "String", description = "S3 bucket name" }
-    "backend/STORAGE_BASE_URL" = { type = "String", description = "S3 base URL" }
+    "backend/STORAGE_TYPE"                         = { type = "String", description = "Storage type (s3/dummy)" }
+    "backend/STORAGE_REGION"                       = { type = "String", description = "S3 region" }
+    "backend/STORAGE_BUCKET"                       = { type = "String", description = "S3 bucket name" }
+    "backend/STORAGE_BASE_URL"                     = { type = "String", description = "S3 base URL" }
     "backend/STORAGE_PRESIGNED_EXPIRATION_SECONDS" = { type = "String", description = "Presigned URL TTL (seconds)" }
-    "backend/STORAGE_TEMP_UPLOAD_PREFIX" = { type = "String", description = "Temp upload key prefix" }
+    "backend/STORAGE_TEMP_UPLOAD_PREFIX"           = { type = "String", description = "Temp upload key prefix" }
 
     # ── Spring Boot: CORS ──
     "backend/CORS_ALLOWED_ORIGINS" = { type = "String", description = "CORS allowed origins (comma-separated)" }
@@ -65,19 +67,19 @@ module "ssm" {
     "backend/CORS_ALLOWED_METHODS" = { type = "String", description = "CORS allowed methods (comma-separated)" }
 
     # ── Spring Boot: File cleanup ──
-    "backend/FILE_CLEANUP_TTL_SECONDS" = { type = "String", description = "File cleanup TTL (seconds)" }
+    "backend/FILE_CLEANUP_TTL_SECONDS"    = { type = "String", description = "File cleanup TTL (seconds)" }
     "backend/FILE_CLEANUP_FIXED_DELAY_MS" = { type = "String", description = "File cleanup fixed delay (ms)" }
 
     # ── Spring Boot: Naver Maps ──
     "backend/NAVER_MAPS_API_KEY_ID" = { type = "SecureString", description = "Naver Maps API key ID" }
-    "backend/NAVER_MAPS_API_KEY" = { type = "SecureString", description = "Naver Maps API key" }
+    "backend/NAVER_MAPS_API_KEY"    = { type = "SecureString", description = "Naver Maps API key" }
 
     # ── Spring Boot: Webhook ──
-    "backend/WEBHOOK_ENABLED" = { type = "String", description = "Webhook enabled flag" }
-    "backend/WEBHOOK_PROVIDER" = { type = "String", description = "Webhook provider" }
-    "backend/DISCORD_WEBHOOK_URL" = { type = "SecureString", description = "Discord webhook URL" }
-    "backend/WEBHOOK_RETRY_MAX" = { type = "String", description = "Webhook retry max attempts" }
-    "backend/WEBHOOK_RETRY_BACKOFF" = { type = "String", description = "Webhook retry backoff (ms)" }
+    "backend/WEBHOOK_ENABLED"         = { type = "String", description = "Webhook enabled flag" }
+    "backend/WEBHOOK_PROVIDER"        = { type = "String", description = "Webhook provider" }
+    "backend/DISCORD_WEBHOOK_URL"     = { type = "SecureString", description = "Discord webhook URL" }
+    "backend/WEBHOOK_RETRY_MAX"       = { type = "String", description = "Webhook retry max attempts" }
+    "backend/WEBHOOK_RETRY_BACKOFF"   = { type = "String", description = "Webhook retry backoff (ms)" }
     "backend/WEBHOOK_MIN_HTTP_STATUS" = { type = "String", description = "Webhook minimum HTTP status to notify" }
 
     # ── Spring Boot: Admin ──
@@ -85,33 +87,33 @@ module "ssm" {
     "backend/ADMIN_PASSWORD" = { type = "SecureString", description = "Admin password" }
 
     # ── Spring Boot: Flyway ──
-    "backend/FLYWAY_USER" = { type = "SecureString", description = "Flyway DB user" }
+    "backend/FLYWAY_USER"     = { type = "SecureString", description = "Flyway DB user" }
     "backend/FLYWAY_PASSWORD" = { type = "SecureString", description = "Flyway DB password" }
 
     # ── Spring Boot: Firebase ──
-    "backend/FIREBASE_ENABLED" = { type = "String", description = "Firebase enable flag" }
-    "backend/FIREBASE_PROJECT_ID" = { type = "String", description = "Firebase project ID" }
+    "backend/FIREBASE_ENABLED"                = { type = "String", description = "Firebase enable flag" }
+    "backend/FIREBASE_PROJECT_ID"             = { type = "String", description = "Firebase project ID" }
     "backend/FIREBASE_SERVICE_ACCOUNT_BASE64" = { type = "SecureString", description = "Firebase service account (base64)" }
 
     # ── Spring Boot: Logging ──
-    "backend/LOG_FILE_PATH" = { type = "String", description = "Log file path" }
+    "backend/LOG_FILE_PATH"     = { type = "String", description = "Log file path" }
     "backend/LOG_MAX_FILE_SIZE" = { type = "String", description = "Log max file size" }
-    "backend/LOG_MAX_HISTORY" = { type = "String", description = "Log max history" }
+    "backend/LOG_MAX_HISTORY"   = { type = "String", description = "Log max history" }
 
     # ── Frontend (Vite) ──
-    "frontend/VITE_APP_ENV"                  = { type = "String", description = "Frontend app environment" }
-    "frontend/VITE_APP_URL"                  = { type = "String", description = "Frontend app base URL" }
-    "frontend/VITE_API_BASE_URL"             = { type = "String", description = "Frontend API base URL" }
-    "frontend/VITE_DUMMY_DATA"               = { type = "String", description = "Frontend dummy data toggle" }
-    "frontend/VITE_AUTH_DEBUG"               = { type = "String", description = "Frontend auth debug toggle" }
-    "frontend/VITE_LOG_LEVEL"                = { type = "String", description = "Frontend log level" }
-    "frontend/VITE_FIREBASE_API_KEY"         = { type = "String", description = "Firebase API key" }
-    "frontend/VITE_FIREBASE_AUTH_DOMAIN"     = { type = "String", description = "Firebase auth domain" }
-    "frontend/VITE_FIREBASE_PROJECT_ID"      = { type = "String", description = "Firebase project ID" }
-    "frontend/VITE_FIREBASE_STORAGE_BUCKET"  = { type = "String", description = "Firebase storage bucket" }
+    "frontend/VITE_APP_ENV"                      = { type = "String", description = "Frontend app environment" }
+    "frontend/VITE_APP_URL"                      = { type = "String", description = "Frontend app base URL" }
+    "frontend/VITE_API_BASE_URL"                 = { type = "String", description = "Frontend API base URL" }
+    "frontend/VITE_DUMMY_DATA"                   = { type = "String", description = "Frontend dummy data toggle" }
+    "frontend/VITE_AUTH_DEBUG"                   = { type = "String", description = "Frontend auth debug toggle" }
+    "frontend/VITE_LOG_LEVEL"                    = { type = "String", description = "Frontend log level" }
+    "frontend/VITE_FIREBASE_API_KEY"             = { type = "String", description = "Firebase API key" }
+    "frontend/VITE_FIREBASE_AUTH_DOMAIN"         = { type = "String", description = "Firebase auth domain" }
+    "frontend/VITE_FIREBASE_PROJECT_ID"          = { type = "String", description = "Firebase project ID" }
+    "frontend/VITE_FIREBASE_STORAGE_BUCKET"      = { type = "String", description = "Firebase storage bucket" }
     "frontend/VITE_FIREBASE_MESSAGING_SENDER_ID" = { type = "String", description = "Firebase messaging sender ID" }
-    "frontend/VITE_FIREBASE_APP_ID"          = { type = "String", description = "Firebase app ID" }
-    "frontend/VITE_FIREBASE_VAPID_KEY"       = { type = "String", description = "Firebase VAPID key" }
+    "frontend/VITE_FIREBASE_APP_ID"              = { type = "String", description = "Firebase app ID" }
+    "frontend/VITE_FIREBASE_VAPID_KEY"           = { type = "String", description = "Firebase VAPID key" }
 
     # ── FastAPI ──
     "fastapi/openai-api-key" = { type = "SecureString", description = "OpenAI API key" }
@@ -333,22 +335,7 @@ resource "aws_route" "v1_to_prod" {
   vpc_peering_connection_id = aws_vpc_peering_connection.v1_peering.id
 }
 
-# 6. Data Source & Route for V1 Custom Route Table (if exists)
-data "aws_route_table" "v1_custom" {
-  provider = aws.v1
-  vpc_id   = data.aws_vpc.v1.id
-  filter {
-    name   = "association.main"
-    values = ["false"]
-  }
-}
 
-resource "aws_route" "v1_custom_to_prod" {
-  provider                  = aws.v1
-  route_table_id            = data.aws_route_table.v1_custom.id
-  destination_cidr_block    = module.vpc.vpc_cidr_block
-  vpc_peering_connection_id = aws_vpc_peering_connection.v1_peering.id
-}
 
 # ──────────────────────────────────────────────
 # RDS — PostgreSQL (마이그레이션 타겟)
