@@ -65,14 +65,15 @@ resource "aws_internet_gateway" "main" {
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
-
   tags = {
     Name = "${var.environment}-rtb-public"
   }
+}
+
+resource "aws_route" "public_internet_access" {
+  route_table_id         = aws_route_table.public.id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_internet_gateway.main.id
 }
 
 # Private Route Table — VPC 내부 통신만 (NAT Gateway 없음)

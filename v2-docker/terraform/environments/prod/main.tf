@@ -310,17 +310,42 @@ resource "aws_vpc_peering_connection_accepter" "v1_peering_accepter" {
   }
 }
 
-# 3. Routes: V2 -> V1
-resource "aws_route" "to_v1" {
+# 3. Routes: V2 -> V1 (Private)
+resource "aws_route" "to_v1_private" {
   route_table_id            = module.vpc.private_route_table_id
   destination_cidr_block    = data.aws_vpc.v1.cidr_block
   vpc_peering_connection_id = aws_vpc_peering_connection.v1_peering.id
 }
 
+# 4. Routes: V2 -> V1 (Public)
+resource "aws_route" "to_v1_public" {
+  route_table_id            = module.vpc.public_route_table_id
+  destination_cidr_block    = data.aws_vpc.v1.cidr_block
+  vpc_peering_connection_id = aws_vpc_peering_connection.v1_peering.id
+}
+
 # 4. Routes: V1 -> V2
+# 5. Routes: V1 -> V2 (Main Route Table)
 resource "aws_route" "v1_to_prod" {
   provider                  = aws.v1
   route_table_id            = data.aws_route_table.v1.id
+  destination_cidr_block    = module.vpc.vpc_cidr_block
+  vpc_peering_connection_id = aws_vpc_peering_connection.v1_peering.id
+}
+
+# 6. Data Source & Route for V1 Custom Route Table (if exists)
+data "aws_route_table" "v1_custom" {
+  provider = aws.v1
+  vpc_id   = data.aws_vpc.v1.id
+  filter {
+    name   = "association.main"
+    values = ["false"]
+  }
+}
+
+resource "aws_route" "v1_custom_to_prod" {
+  provider                  = aws.v1
+  route_table_id            = data.aws_route_table.v1_custom.id
   destination_cidr_block    = module.vpc.vpc_cidr_block
   vpc_peering_connection_id = aws_vpc_peering_connection.v1_peering.id
 }
