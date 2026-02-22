@@ -9,3 +9,9 @@ variable "environment" {
   type        = string
   default     = "prod"
 }
+
+variable "db_username" {
+  description = "RDS 마스터 유저 이름"
+  type        = string
+  default     = "postgres"
+}

@@ -31,11 +31,6 @@ resource "aws_service_discovery_service" "this" {
     }
   }
 
-  health_check_custom_config {
-    # 앱이 직접 UpdateInstanceCustomHealthStatus를 호출해야 healthy 상태 유지
-    # NOTE: failure_threshold는 AWS에서 deprecated — 항상 1로 고정됨
-  }
-
   tags = {
     Name = "${var.environment}-cloudmap-svc-${var.service_name}"
   }

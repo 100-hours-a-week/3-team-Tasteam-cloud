@@ -34,9 +34,6 @@ module "ssm" {
 
   parameters = {
     # ── Spring Boot: DB ──
-    "backend/DB_URL" = { type = "SecureString", description = "PostgreSQL JDBC URL" }
-    "backend/DB_USERNAME" = { type = "SecureString", description = "DB username" }
-    "backend/DB_PASSWORD" = { type = "SecureString", description = "DB password" }
 
     # ── Spring Boot: Redis ──
     "backend/REDIS_HOST" = { type = "String", description = "Redis host" }
@@ -326,4 +323,57 @@ resource "aws_route" "v1_to_prod" {
   route_table_id            = data.aws_route_table.v1.id
   destination_cidr_block    = module.vpc.vpc_cidr_block
   vpc_peering_connection_id = aws_vpc_peering_connection.v1_peering.id
+}
+
+# ──────────────────────────────────────────────
+# RDS — PostgreSQL (마이그레이션 타겟)
+# ──────────────────────────────────────────────
+
+module "rds" {
+  source = "../../modules/rds"
+
+  environment        = var.environment
+  instance_class     = "db.t3.small"
+  db_name            = "tasteam"
+  username           = var.db_username
+  subnet_ids         = module.vpc.private_subnet_ids
+  security_group_ids = [module.security.rds_sg_id]
+}
+
+# ──────────────────────────────────────────────
+# SSM — RDS 크리덴셜 자동 저장
+# RDS 출력값을 SSM에 직접 저장 (기존 SSM 모듈과 별도 관리)
+# ──────────────────────────────────────────────
+
+resource "aws_ssm_parameter" "db_url" {
+  name        = "/${var.environment}/tasteam/backend/DB_URL"
+  type        = "SecureString"
+  value       = "jdbc:postgresql://${module.rds.address}:${module.rds.port}/${module.rds.identifier == "" ? "tasteam" : "tasteam"}"
+  description = "PostgreSQL JDBC URL (RDS 모듈에서 자동 생성)"
+
+  tags = {
+    Name = "${var.environment}-ssm-backend-DB_URL"
+  }
+}
+
+resource "aws_ssm_parameter" "db_username" {
+  name        = "/${var.environment}/tasteam/backend/DB_USERNAME"
+  type        = "SecureString"
+  value       = module.rds.username
+  description = "DB 마스터 유저 이름 (RDS 모듈에서 자동 생성)"
+
+  tags = {
+    Name = "${var.environment}-ssm-backend-DB_USERNAME"
+  }
+}
+
+resource "aws_ssm_parameter" "db_password" {
+  name        = "/${var.environment}/tasteam/backend/DB_PASSWORD"
+  type        = "SecureString"
+  value       = module.rds.password
+  description = "DB 마스터 비밀번호 (RDS 모듈에서 자동 생성)"
+
+  tags = {
+    Name = "${var.environment}-ssm-backend-DB_PASSWORD"
+  }
 }
