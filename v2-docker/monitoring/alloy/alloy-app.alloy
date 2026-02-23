@@ -1,0 +1,56 @@
+// ── 로그 수집: Spring JSON 파일 → Loki push ──
+
+local.file_match "spring_logs" {
+  path_targets = [{"__path__" = "/var/log/app/*.log"}]
+}
+
+loki.source.file "spring_logs" {
+  targets    = local.file_match.spring_logs.targets
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://${LOKI_HOST}:3100/loki/api/v1/push"
+  }
+  external_labels = {
+    environment = env("ENVIRONMENT"),
+    instance    = env("HOSTNAME"),
+  }
+}
+
+// ── 호스트 메트릭: node_exporter ──
+
+prometheus.exporter.unix "node" {
+  set_collectors     = ["cpu", "diskstats", "filesystem", "loadavg", "meminfo", "netdev"]
+  filesystem_mount_points_exclude = "^/(sys|proc|dev|host|etc)($$|/)"
+}
+
+// ── 컨테이너 메트릭: cAdvisor ──
+
+prometheus.exporter.cadvisor "containers" {
+  docker_host = "unix:///var/run/docker.sock"
+  store_container_labels = false
+}
+
+// ── 메트릭 expose (Prometheus가 scrape) ──
+
+prometheus.scrape "node" {
+  targets    = prometheus.exporter.unix.node.targets
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.scrape "cadvisor" {
+  targets    = prometheus.exporter.cadvisor.containers.targets
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+// NOTE: 실제로는 Prometheus가 직접 Alloy의 /metrics를 scrape하므로
+// remote_write 대신 Alloy 내장 HTTP 서버로 메트릭 expose하는 방식으로 전환 가능.
+// 초기 구축 후 최적화 단계에서 판단.
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://${PROMETHEUS_HOST}:9090/api/v1/write"
+  }
+}

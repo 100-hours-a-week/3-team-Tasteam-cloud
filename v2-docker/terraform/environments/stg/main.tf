@@ -19,8 +19,9 @@ module "vpc" {
 module "security" {
   source = "../../modules/security"
 
-  environment = var.environment
-  vpc_id      = module.vpc.vpc_id
+  environment     = var.environment
+  vpc_id          = module.vpc.vpc_id
+  shared_vpc_cidr = "10.10.0.0/16"
 }
 
 # ──────────────────────────────────────────────

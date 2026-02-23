@@ -1,0 +1,63 @@
+// ── 로그 수집 ──
+
+local.file_match "redis_logs" {
+  path_targets = [{"__path__" = "/var/log/app/*.log"}]
+}
+
+loki.source.file "redis_logs" {
+  targets    = local.file_match.redis_logs.targets
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://${LOKI_HOST}:3100/loki/api/v1/push"
+  }
+  external_labels = {
+    environment = env("ENVIRONMENT"),
+    instance    = env("HOSTNAME"),
+  }
+}
+
+// ── 호스트 메트릭 ──
+
+prometheus.exporter.unix "node" {
+  set_collectors = ["cpu", "diskstats", "filesystem", "loadavg", "meminfo", "netdev"]
+  filesystem_mount_points_exclude = "^/(sys|proc|dev|host|etc)($$|/)"
+}
+
+// ── 컨테이너 메트릭 ──
+
+prometheus.exporter.cadvisor "containers" {
+  docker_host = "unix:///var/run/docker.sock"
+  store_container_labels = false
+}
+
+// ── Redis 메트릭 ──
+
+prometheus.exporter.redis "redis" {
+  redis_addr = "redis:6379"
+}
+
+// ── 메트릭 forward ──
+
+prometheus.scrape "node" {
+  targets    = prometheus.exporter.unix.node.targets
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.scrape "cadvisor" {
+  targets    = prometheus.exporter.cadvisor.containers.targets
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.scrape "redis" {
+  targets    = prometheus.exporter.redis.redis.targets
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://${PROMETHEUS_HOST}:9090/api/v1/write"
+  }
+}

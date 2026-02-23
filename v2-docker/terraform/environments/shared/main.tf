@@ -44,19 +44,194 @@ data "aws_ami" "docker_base" {
 }
 
 # ──────────────────────────────────────────────
+# IAM — Monitoring EC2 Role
+# Prometheus EC2 SD + Grafana CloudWatch + SSM 파라미터 읽기
+# ──────────────────────────────────────────────
+
+resource "aws_iam_role" "monitoring" {
+  name = "${var.environment}-tasteam-monitoring-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_instance_profile" "monitoring" {
+  name = "${var.environment}-tasteam-monitoring-profile"
+  role = aws_iam_role.monitoring.name
+}
+
+# ── Prometheus EC2 Service Discovery ──
+resource "aws_iam_role_policy" "monitoring_ec2_sd" {
+  name = "ec2-service-discovery"
+  role = aws_iam_role.monitoring.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "ec2:DescribeInstances",
+        "ec2:DescribeTags",
+        "ec2:DescribeInstances"
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
+# ── Grafana CloudWatch 데이터소스 ──
+resource "aws_iam_role_policy" "monitoring_cloudwatch" {
+  name = "cloudwatch-read"
+  role = aws_iam_role.monitoring.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "cloudwatch:DescribeAlarmsForMetric",
+        "cloudwatch:DescribeAlarmHistory",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:ListMetrics",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetInsightRuleReport"
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
+# ── SSM 모니터링 파라미터 읽기 ──
+resource "aws_iam_role_policy" "monitoring_ssm" {
+  name = "ssm-read"
+  role = aws_iam_role.monitoring.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
+        Resource = "arn:aws:ssm:*:*:parameter/*/tasteam/monitoring/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# ── CodeDeploy Artifacts & Agent ──
+resource "aws_iam_role_policy" "monitoring_codedeploy" {
+  name = "codedeploy-read"
+  role = aws_iam_role.monitoring.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion"
+        ]
+        Resource = "arn:aws:s3:::${var.codedeploy_artifact_bucket_name}/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+          "s3:GetBucketVersioning"
+        ]
+        Resource = "arn:aws:s3:::${var.codedeploy_artifact_bucket_name}"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "codedeploy-commands-secure:GetDeploymentSpecification",
+          "codedeploy-commands-secure:PollHostCommand",
+          "codedeploy-commands-secure:PutHostCommandAcknowledgement",
+          "codedeploy-commands-secure:PutHostCommandComplete"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# ──────────────────────────────────────────────
+# CodeDeploy — Monitoring
+# ──────────────────────────────────────────────
+
+resource "aws_iam_role" "codedeploy_monitoring" {
+  name = "${var.environment}-codedeploy-monitoring-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "codedeploy.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "codedeploy_monitoring" {
+  role       = aws_iam_role.codedeploy_monitoring.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
+}
+
+resource "aws_codedeploy_app" "monitoring" {
+  compute_platform = "Server"
+  name             = "${var.environment}-tasteam-monitoring"
+}
+
+resource "aws_codedeploy_deployment_group" "monitoring" {
+  app_name              = aws_codedeploy_app.monitoring.name
+  deployment_group_name = "${var.environment}-tasteam-monitoring-dg"
+  service_role_arn      = aws_iam_role.codedeploy_monitoring.arn
+
+  deployment_config_name = "CodeDeployDefault.OneAtATime"
+
+  ec2_tag_set {
+    ec2_tag_filter {
+      key   = "Purpose"
+      type  = "KEY_AND_VALUE"
+      value = "monitoring"
+    }
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.codedeploy_monitoring
+  ]
+}
+
+# ──────────────────────────────────────────────
 # EC2 — Monitoring (PLG Stack)
 # ──────────────────────────────────────────────
 
 module "ec2_monitoring" {
   source = "../../modules/ec2"
 
-  environment        = var.environment
-  purpose            = "monitoring"
-  instance_type      = "t3.medium"
-  ami_id             = data.aws_ami.docker_base.id
-  subnet_id          = module.vpc.private_subnet_ids[0]
-  security_group_ids = [module.security.monitoring_sg_id]
-  manage_key_pair    = true
+  environment          = var.environment
+  purpose              = "monitoring"
+  instance_type        = "t3.medium"
+  ami_id               = data.aws_ami.docker_base.id
+  subnet_id            = module.vpc.private_subnet_ids[0]
+  security_group_ids   = [module.security.monitoring_sg_id]
+  manage_key_pair      = true
+  iam_instance_profile = aws_iam_instance_profile.monitoring.name
 }
 
 # ──────────────────────────────────────────────

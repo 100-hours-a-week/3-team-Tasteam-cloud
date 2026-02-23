@@ -43,6 +43,30 @@ resource "aws_security_group" "app" {
   }
 }
 
+resource "aws_security_group_rule" "app_prometheus_actuator" {
+  count = var.shared_vpc_cidr != null ? 1 : 0
+
+  type              = "ingress"
+  from_port         = 8080
+  to_port           = 8080
+  protocol          = "tcp"
+  cidr_blocks       = [var.shared_vpc_cidr]
+  security_group_id = aws_security_group.app.id
+  description       = "Prometheus scrape - Spring Actuator (from shared VPC)"
+}
+
+resource "aws_security_group_rule" "app_prometheus_alloy" {
+  count = var.shared_vpc_cidr != null ? 1 : 0
+
+  type              = "ingress"
+  from_port         = 12345
+  to_port           = 12345
+  protocol          = "tcp"
+  cidr_blocks       = [var.shared_vpc_cidr]
+  security_group_id = aws_security_group.app.id
+  description       = "Prometheus scrape - Alloy metrics (from shared VPC)"
+}
+
 # ──────────────────────────────────────────────
 # RDS Security Group — PostgreSQL용
 # ──────────────────────────────────────────────
@@ -107,6 +131,18 @@ resource "aws_security_group" "redis" {
   tags = {
     Name = "${var.environment}-sg-redis"
   }
+}
+
+resource "aws_security_group_rule" "redis_prometheus_alloy" {
+  count = var.shared_vpc_cidr != null ? 1 : 0
+
+  type              = "ingress"
+  from_port         = 12345
+  to_port           = 12345
+  protocol          = "tcp"
+  cidr_blocks       = [var.shared_vpc_cidr]
+  security_group_id = aws_security_group.redis.id
+  description       = "Prometheus scrape - Alloy metrics (from shared VPC)"
 }
 
 # ──────────────────────────────────────────────
