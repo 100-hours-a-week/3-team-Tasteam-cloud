@@ -37,6 +37,16 @@ output "asg_spring_arn" {
   value       = module.asg_spring.asg_arn
 }
 
+output "codedeploy_app_name" {
+  description = "CodeDeploy application name for prod backend"
+  value       = aws_codedeploy_app.backend.name
+}
+
+output "codedeploy_deployment_group_name" {
+  description = "CodeDeploy deployment group name for prod backend"
+  value       = aws_codedeploy_deployment_group.backend_prod.deployment_group_name
+}
+
 # ──────────────────────────────────────────────
 # NAT Instance
 # ──────────────────────────────────────────────

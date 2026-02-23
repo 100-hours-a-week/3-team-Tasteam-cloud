@@ -10,6 +10,18 @@ variable "environment" {
   default     = "prod"
 }
 
+variable "codedeploy_app_name" {
+  description = "CodeDeploy application name for backend"
+  type        = string
+  default     = "tasteam-backend-prod"
+}
+
+variable "codedeploy_deployment_group_name" {
+  description = "CodeDeploy deployment group name for backend"
+  type        = string
+  default     = "tasteam-backend-prod-dg"
+}
+
 variable "db_username" {
   description = "RDS 마스터 유저 이름"
   type        = string

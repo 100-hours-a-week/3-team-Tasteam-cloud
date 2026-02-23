@@ -66,6 +66,61 @@ resource "aws_iam_role_policy" "ssm" {
 }
 
 # ──────────────────────────────────────────────
+# S3 — CodeDeploy 아티팩트 다운로드
+# ──────────────────────────────────────────────
+
+resource "aws_iam_role_policy" "codedeploy_artifacts_s3" {
+  name = "codedeploy-artifacts-s3-read"
+  role = aws_iam_role.this.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion"
+        ]
+        Resource = "arn:aws:s3:::tasteam-v2-codedeploy-artifacts/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+          "s3:GetBucketVersioning"
+        ]
+        Resource = "arn:aws:s3:::tasteam-v2-codedeploy-artifacts"
+      }
+    ]
+  })
+}
+
+# ──────────────────────────────────────────────
+# CodeDeploy Agent — secure commands
+# ──────────────────────────────────────────────
+
+resource "aws_iam_role_policy" "codedeploy_commands_secure" {
+  name = "codedeploy-commands-secure"
+  role = aws_iam_role.this.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "codedeploy-commands-secure:GetDeploymentSpecification",
+        "codedeploy-commands-secure:PollHostCommand",
+        "codedeploy-commands-secure:PutHostCommandAcknowledgement",
+        "codedeploy-commands-secure:PutHostCommandComplete"
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
+# ──────────────────────────────────────────────
 # KMS — SecureString 파라미터 복호화
 # ──────────────────────────────────────────────
 

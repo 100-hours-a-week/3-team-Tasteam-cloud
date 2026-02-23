@@ -233,6 +233,48 @@ module "asg_spring" {
 }
 
 # ──────────────────────────────────────────────
+# CodeDeploy — Backend (Prod)
+# ──────────────────────────────────────────────
+
+resource "aws_iam_role" "codedeploy_service" {
+  name = "${var.environment}-codedeploy-service-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "codedeploy.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "codedeploy_service" {
+  role       = aws_iam_role.codedeploy_service.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
+}
+
+resource "aws_codedeploy_app" "backend" {
+  compute_platform = "Server"
+  name             = var.codedeploy_app_name
+}
+
+resource "aws_codedeploy_deployment_group" "backend_prod" {
+  app_name              = aws_codedeploy_app.backend.name
+  deployment_group_name = var.codedeploy_deployment_group_name
+  service_role_arn      = aws_iam_role.codedeploy_service.arn
+
+  deployment_config_name = "CodeDeployDefault.OneAtATime"
+  autoscaling_groups     = [module.asg_spring.asg_name]
+
+  depends_on = [
+    aws_iam_role_policy_attachment.codedeploy_service
+  ]
+}
+
+# ──────────────────────────────────────────────
 # Cloud Map — 내부 서비스 디스커버리 네임스페이스
 # ──────────────────────────────────────────────
 
