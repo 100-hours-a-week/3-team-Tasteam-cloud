@@ -1,0 +1,46 @@
+# Caddy EC2 docker-compose
+# 배포: 수동 scp → docker compose up -d
+# 환경 변수: .env 파일 필요 (LOKI_HOST, PROMETHEUS_HOST, ENVIRONMENT, HOSTNAME)
+# 사전 조건: Caddyfile 상단에 "admin 0.0.0.0:2019" 추가 필요 (Alloy가 메트릭 수집)
+
+services:
+  caddy:
+    build: .
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/caddy/www/html:/var/www/html:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    restart: unless-stopped
+    ports:
+      - "12345:12345"  # Alloy 자체 텔레메트리 + 메트릭 (Prometheus가 pull)
+    volumes:
+      - ./alloy/alloy-caddy.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock  # cAdvisor + Docker 로그 수집용
+    environment:
+      - LOKI_HOST=${LOKI_HOST}
+      - PROMETHEUS_HOST=${PROMETHEUS_HOST}          # Caddy 메트릭 remote_write용
+      - ENVIRONMENT=${ENVIRONMENT:-prod}
+      - HOSTNAME=${HOSTNAME}
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+
+volumes:
+  caddy_data:
+  caddy_config:
