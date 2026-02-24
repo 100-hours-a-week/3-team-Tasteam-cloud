@@ -11,46 +11,28 @@ loki.source.file "spring_logs" {
 
 loki.write "default" {
   endpoint {
-    url = "http://${LOKI_HOST}:3100/loki/api/v1/push"
+    url = "http://" + sys.env("LOKI_HOST") + ":3100/loki/api/v1/push"
   }
   external_labels = {
-    environment = env("ENVIRONMENT"),
-    instance    = env("HOSTNAME"),
+    environment = sys.env("ENVIRONMENT"),
+    instance    = sys.env("HOSTNAME"),
   }
 }
 
 // ── 호스트 메트릭: node_exporter ──
+// prometheus.exporter.* 컴포넌트는 Alloy 내장 HTTP 서버(:12345/metrics)에 자동 노출.
+// Prometheus가 prometheus.yml의 alloy job을 통해 :12345를 pull함.
 
 prometheus.exporter.unix "node" {
-  set_collectors     = ["cpu", "diskstats", "filesystem", "loadavg", "meminfo", "netdev"]
-  filesystem_mount_points_exclude = "^/(sys|proc|dev|host|etc)($$|/)"
+  set_collectors = ["cpu", "diskstats", "filesystem", "loadavg", "meminfo", "netdev"]
+  filesystem {
+    mount_points_exclude = "^/(sys|proc|dev|host|etc)($|/)"
+  }
 }
 
 // ── 컨테이너 메트릭: cAdvisor ──
 
 prometheus.exporter.cadvisor "containers" {
-  docker_host = "unix:///var/run/docker.sock"
+  docker_host            = "unix:///var/run/docker.sock"
   store_container_labels = false
-}
-
-// ── 메트릭 expose (Prometheus가 scrape) ──
-
-prometheus.scrape "node" {
-  targets    = prometheus.exporter.unix.node.targets
-  forward_to = [prometheus.remote_write.default.receiver]
-}
-
-prometheus.scrape "cadvisor" {
-  targets    = prometheus.exporter.cadvisor.containers.targets
-  forward_to = [prometheus.remote_write.default.receiver]
-}
-
-// NOTE: 실제로는 Prometheus가 직접 Alloy의 /metrics를 scrape하므로
-// remote_write 대신 Alloy 내장 HTTP 서버로 메트릭 expose하는 방식으로 전환 가능.
-// 초기 구축 후 최적화 단계에서 판단.
-
-prometheus.remote_write "default" {
-  endpoint {
-    url = "http://${PROMETHEUS_HOST}:9090/api/v1/write"
-  }
 }

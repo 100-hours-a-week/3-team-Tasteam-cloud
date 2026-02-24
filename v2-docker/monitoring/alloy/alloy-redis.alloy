@@ -11,11 +11,11 @@ loki.source.file "redis_logs" {
 
 loki.write "default" {
   endpoint {
-    url = "http://${LOKI_HOST}:3100/loki/api/v1/push"
+    url = "http://" + sys.env("LOKI_HOST") + ":3100/loki/api/v1/push"
   }
   external_labels = {
-    environment = env("ENVIRONMENT"),
-    instance    = env("HOSTNAME"),
+    environment = sys.env("ENVIRONMENT"),
+    instance    = sys.env("HOSTNAME"),
   }
 }
 
@@ -23,41 +23,22 @@ loki.write "default" {
 
 prometheus.exporter.unix "node" {
   set_collectors = ["cpu", "diskstats", "filesystem", "loadavg", "meminfo", "netdev"]
-  filesystem_mount_points_exclude = "^/(sys|proc|dev|host|etc)($$|/)"
+  filesystem {
+    mount_points_exclude = "^/(sys|proc|dev|host|etc)($|/)"
+  }
 }
 
 // ── 컨테이너 메트릭 ──
 
 prometheus.exporter.cadvisor "containers" {
-  docker_host = "unix:///var/run/docker.sock"
+  docker_host            = "unix:///var/run/docker.sock"
   store_container_labels = false
 }
 
 // ── Redis 메트릭 ──
+// prometheus.exporter.* 컴포넌트는 Alloy 내장 HTTP 서버(:12345/metrics)에 자동 노출.
+// Prometheus가 prometheus.yml의 alloy job을 통해 :12345를 pull함.
 
 prometheus.exporter.redis "redis" {
   redis_addr = "redis:6379"
-}
-
-// ── 메트릭 forward ──
-
-prometheus.scrape "node" {
-  targets    = prometheus.exporter.unix.node.targets
-  forward_to = [prometheus.remote_write.default.receiver]
-}
-
-prometheus.scrape "cadvisor" {
-  targets    = prometheus.exporter.cadvisor.containers.targets
-  forward_to = [prometheus.remote_write.default.receiver]
-}
-
-prometheus.scrape "redis" {
-  targets    = prometheus.exporter.redis.redis.targets
-  forward_to = [prometheus.remote_write.default.receiver]
-}
-
-prometheus.remote_write "default" {
-  endpoint {
-    url = "http://${PROMETHEUS_HOST}:9090/api/v1/write"
-  }
 }

@@ -1,0 +1,64 @@
+// ── 로그 수집: Docker 컨테이너 로그 → Loki push ──
+// Caddy는 stdout으로 로그 출력 (json-file 드라이버).
+// 파일 마운트 없이 Docker 소켓으로 직접 수집 (소켓은 cAdvisor용으로 이미 마운트됨).
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+  filter {
+    name   = "name"
+    values = ["caddy"]
+  }
+}
+
+loki.source.docker "caddy_container" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.docker.containers.targets
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://" + sys.env("LOKI_HOST") + ":3100/loki/api/v1/push"
+  }
+  external_labels = {
+    environment = sys.env("ENVIRONMENT"),
+    instance    = sys.env("HOSTNAME"),
+  }
+}
+
+// ── 호스트 메트릭: node_exporter ──
+// prometheus.exporter.* 컴포넌트는 Alloy 내장 HTTP 서버(:12345/metrics)에 자동 노출.
+// Prometheus가 prometheus.yml의 alloy job을 통해 :12345를 pull함.
+
+prometheus.exporter.unix "node" {
+  set_collectors = ["cpu", "diskstats", "filesystem", "loadavg", "meminfo", "netdev"]
+  filesystem {
+    mount_points_exclude = "^/(sys|proc|dev|host|etc)($|/)"
+  }
+}
+
+// ── 컨테이너 메트릭: cAdvisor ──
+
+prometheus.exporter.cadvisor "containers" {
+  docker_host            = "unix:///var/run/docker.sock"
+  store_container_labels = false
+}
+
+// ── Caddy HTTP 메트릭: admin API → remote_write ──
+// admin API(:2019)는 Docker 내부 네트워크에만 노출.
+// 외부 Prometheus가 직접 접근 불가하므로 Alloy가 로컬 스크래핑 후 push.
+// admin API를 외부 네트워크에 노출하면 config reload, 인증서 조작 등 보안 위협 발생.
+
+prometheus.scrape "caddy" {
+  targets = [{
+    __address__      = "caddy:2019",
+    __metrics_path__ = "/metrics",
+  }]
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://" + sys.env("PROMETHEUS_HOST") + ":9090/api/v1/write"
+  }
+}
