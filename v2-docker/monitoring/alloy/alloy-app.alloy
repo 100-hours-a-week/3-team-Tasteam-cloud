@@ -1,11 +1,45 @@
-// ── 로그 수집: Spring JSON 파일 → Loki push ──
+// ── 로그 수집: Spring JSON 파일 → JSON 파싱 → Loki push ──
 
 local.file_match "spring_logs" {
-  path_targets = [{"__path__" = "/var/log/app/*.log"}]
+  path_targets = [{"__path__" = "/var/log/app/*.log", "job" = "tasteam-api"}]
 }
 
 loki.source.file "spring_logs" {
   targets    = local.file_match.spring_logs.targets
+  forward_to = [loki.process.spring_json.receiver]
+}
+
+// JSON 파싱: level, traceId, spanId, logger_name 레이블 추출
+loki.process "spring_json" {
+  stage.json {
+    expressions = {
+      level       = "level",
+      traceId     = "traceId",
+      spanId      = "spanId",
+      logger_name = "logger_name",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level       = "",
+      traceId     = "",
+      spanId      = "",
+      logger_name = "",
+    }
+  }
+
+  // ERROR 로그에 alert 레이블 추가 (Loki 알림 룰 트리거용)
+  stage.match {
+    selector = `{level="ERROR"}`
+
+    stage.static_labels {
+      values = {
+        alert = "true",
+      }
+    }
+  }
+
   forward_to = [loki.write.default.receiver]
 }
 
@@ -14,6 +48,7 @@ loki.write "default" {
     url = "http://" + sys.env("LOKI_HOST") + ":3100/loki/api/v1/push"
   }
   external_labels = {
+    job         = "tasteam-api",
     environment = sys.env("ENVIRONMENT"),
     instance    = sys.env("HOSTNAME"),
   }
