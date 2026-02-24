@@ -230,6 +230,9 @@ module "asg_spring" {
 
   # 서비스 디스커버리 활성화
   enable_lifecycle_hooks = true
+
+  # Key Pair 자동 생성 여부
+  manage_key_pair = true
 }
 
 # ──────────────────────────────────────────────

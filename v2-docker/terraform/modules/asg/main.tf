@@ -6,6 +6,7 @@ resource "aws_launch_template" "this" {
   name_prefix   = "${var.environment}-lt-${var.purpose}-"
   image_id      = var.ami_id
   instance_type = var.instance_type
+  key_name      = var.manage_key_pair ? aws_key_pair.this[0].key_name : var.key_name
 
   network_interfaces {
     associate_public_ip_address = false
