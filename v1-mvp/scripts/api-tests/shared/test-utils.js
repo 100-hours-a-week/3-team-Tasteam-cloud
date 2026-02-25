@@ -45,3 +45,19 @@ export class SuccessMetrics {
         }
     }
 }
+
+/**
+ * Journey별 성공 카운터 메트릭을 생성합니다.
+ * @returns {SuccessMetrics}
+ */
+export function createJourneyMetrics() {
+    return new SuccessMetrics([
+        'browsing_count',
+        'searching_count',
+        'group_count',
+        'subgroup_count',
+        'personal_count',
+        'chat_count',
+        'writing_count',
+    ]);
+}
