@@ -13,6 +13,21 @@ output "private_route_table_id" {
   value       = module.vpc.private_route_table_id
 }
 
+output "ec2_caddy_public_ip" {
+  description = "Shared Caddy EC2 퍼블릭 IP (Grafana 프록시 진입점)"
+  value       = module.ec2_caddy.public_ip
+}
+
+output "ec2_caddy_key_pair_name" {
+  description = "Shared Caddy EC2 key pair name"
+  value       = module.ec2_caddy.key_pair_name
+}
+
+output "ec2_caddy_private_key_path" {
+  description = "Shared Caddy EC2 private key 로컬 파일 경로"
+  value       = module.ec2_caddy.private_key_path
+}
+
 output "ec2_monitoring_key_pair_name" {
   description = "Shared monitoring EC2 key pair name"
   value       = module.ec2_monitoring.key_pair_name

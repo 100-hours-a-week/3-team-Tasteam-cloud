@@ -218,6 +218,24 @@ resource "aws_codedeploy_deployment_group" "monitoring" {
 }
 
 # ──────────────────────────────────────────────
+# EC2 — Caddy (Monitoring 리버스 프록시)
+# 인터넷 → Caddy (public subnet) → monitoring EC2 (private subnet)
+# ──────────────────────────────────────────────
+
+module "ec2_caddy" {
+  source = "../../modules/ec2"
+
+  environment                 = var.environment
+  purpose                     = "caddy"
+  instance_type               = "t3.micro"
+  ami_id                      = "ami-00b6cd96f80a61923"
+  subnet_id                   = module.vpc.public_subnet_ids[0]
+  security_group_ids          = [module.security.app_sg_id]
+  associate_public_ip_address = true
+  manage_key_pair             = true
+}
+
+# ──────────────────────────────────────────────
 # EC2 — Monitoring (PLG Stack)
 # ──────────────────────────────────────────────
 
