@@ -47,3 +47,8 @@ output "codedeploy_deployment_group_name" {
   description = "CodeDeploy deployment group name for dev backend"
   value       = aws_codedeploy_deployment_group.backend_dev.deployment_group_name
 }
+
+output "public_route_table_id" {
+  description = "Dev public route table ID"
+  value       = module.vpc.public_route_table_id
+}

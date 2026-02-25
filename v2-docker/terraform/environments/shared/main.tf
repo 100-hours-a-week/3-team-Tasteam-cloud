@@ -359,6 +359,14 @@ module "peering_dev" {
   accepter_route_table_id  = data.terraform_remote_state.dev.outputs.private_route_table_id
 }
 
+# dev Caddy EC2(퍼블릭 서브넷) → shared VPC 피어링 라우트
+# private RT에만 피어링 라우트가 있어 Alloy가 push 불가했던 문제 해소
+resource "aws_route" "dev_public_to_shared" {
+  route_table_id            = data.terraform_remote_state.dev.outputs.public_route_table_id
+  destination_cidr_block    = "10.10.0.0/16"
+  vpc_peering_connection_id = module.peering_dev.peering_connection_id
+}
+
 # ──────────────────────────────────────────────
 # S3 — CodeDeploy Artifact Bucket
 # ──────────────────────────────────────────────
