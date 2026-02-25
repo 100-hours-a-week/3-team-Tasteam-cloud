@@ -64,3 +64,8 @@ output "cloud_map_service_dns" {
   description = "Caddy upstream에 사용할 Cloud Map DNS 이름"
   value       = module.cloud_map.dns_name
 }
+
+output "uploads_bucket_name" {
+  description = "Prod uploads S3 bucket name"
+  value       = aws_s3_bucket.uploads.bucket
+}

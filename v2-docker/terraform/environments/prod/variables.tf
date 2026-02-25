@@ -27,3 +27,9 @@ variable "db_username" {
   type        = string
   default     = "postgres"
 }
+
+variable "upload_bucket_name" {
+  description = "S3 bucket name for application uploads"
+  type        = string
+  default     = "tasteam-prod-uploads-kr"
+}

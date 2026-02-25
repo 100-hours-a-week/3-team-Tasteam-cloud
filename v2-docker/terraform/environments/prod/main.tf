@@ -191,6 +191,50 @@ resource "aws_vpc_endpoint" "s3" {
 }
 
 # ──────────────────────────────────────────────
+# S3 — Application Upload Bucket (Prod)
+# ──────────────────────────────────────────────
+
+resource "aws_s3_bucket" "uploads" {
+  bucket = var.upload_bucket_name
+
+  tags = {
+    Name    = "${var.environment}-uploads"
+    Purpose = "application-uploads"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "uploads" {
+  bucket = aws_s3_bucket.uploads.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_cors_configuration" "uploads" {
+  bucket = aws_s3_bucket.uploads.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["PUT", "POST"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
+  bucket = aws_s3_bucket.uploads.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# ──────────────────────────────────────────────
 # EC2 — Caddy (Reverse Proxy)
 # ──────────────────────────────────────────────
 
@@ -233,6 +277,35 @@ module "asg_spring" {
 
   # Key Pair 자동 생성 여부
   manage_key_pair = true
+}
+
+# ──────────────────────────────────────────────
+# IAM — Prod Backend ASG Upload S3 Access (v1 parity)
+# ──────────────────────────────────────────────
+
+resource "aws_iam_role_policy" "asg_spring_uploads_s3" {
+  name = "uploads-s3-access"
+  role = module.asg_spring.iam_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = aws_s3_bucket.uploads.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "${aws_s3_bucket.uploads.arn}/*"
+      }
+    ]
+  })
 }
 
 # ──────────────────────────────────────────────

@@ -247,6 +247,50 @@ module "nat" {
 }
 
 # ──────────────────────────────────────────────
+# S3 — Application Upload Bucket (Dev)
+# ──────────────────────────────────────────────
+
+resource "aws_s3_bucket" "uploads" {
+  bucket = var.upload_bucket_name
+
+  tags = {
+    Name    = "${var.environment}-uploads"
+    Purpose = "application-uploads"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "uploads" {
+  bucket = aws_s3_bucket.uploads.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_cors_configuration" "uploads" {
+  bucket = aws_s3_bucket.uploads.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["PUT", "POST"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
+  bucket = aws_s3_bucket.uploads.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# ──────────────────────────────────────────────
 # IAM — Dev Backend EC2 Instance Profile
 # ──────────────────────────────────────────────
 
@@ -324,6 +368,31 @@ resource "aws_iam_role_policy" "dev_backend_ec2" {
           "kms:Decrypt"
         ]
         Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "dev_backend_ec2_uploads_s3" {
+  name = "${var.environment}-uploads-s3-policy"
+  role = aws_iam_role.dev_backend_ec2.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "s3:ListBucket"
+        Resource = aws_s3_bucket.uploads.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "${aws_s3_bucket.uploads.arn}/*"
       }
     ]
   })

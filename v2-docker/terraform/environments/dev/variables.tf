@@ -21,3 +21,9 @@ variable "codedeploy_deployment_group_name" {
   type        = string
   default     = "tasteam-backend-dev-dg"
 }
+
+variable "upload_bucket_name" {
+  description = "S3 bucket name for application uploads"
+  type        = string
+  default     = "tasteam-dev-uploads-kr"
+}

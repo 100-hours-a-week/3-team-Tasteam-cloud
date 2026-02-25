@@ -52,3 +52,8 @@ output "public_route_table_id" {
   description = "Dev public route table ID"
   value       = module.vpc.public_route_table_id
 }
+
+output "uploads_bucket_name" {
+  description = "Dev uploads S3 bucket name"
+  value       = aws_s3_bucket.uploads.bucket
+}

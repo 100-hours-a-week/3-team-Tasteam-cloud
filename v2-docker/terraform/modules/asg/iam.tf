@@ -60,7 +60,10 @@ resource "aws_iam_role_policy" "ssm" {
         "ssm:GetParameters",
         "ssm:GetParameter"
       ]
-      Resource = "arn:aws:ssm:*:*:parameter/${var.environment}/tasteam/backend/*"
+      Resource = [
+        "arn:aws:ssm:*:*:parameter/${var.environment}/tasteam/backend",
+        "arn:aws:ssm:*:*:parameter/${var.environment}/tasteam/backend/*"
+      ]
     }]
   })
 }
