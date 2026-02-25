@@ -1,0 +1,57 @@
+name: Deploy Monitoring Stack
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "v2-docker/monitoring/**"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to monitoring EC2 via CodeDeploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - name: Create deployment artifact
+        run: |
+          cd v2-docker/monitoring
+          zip -r ../../monitoring-artifact.zip .
+          cd ../..
+
+      - name: Upload artifact to S3
+        run: |
+          aws s3 cp monitoring-artifact.zip \
+            s3://tasteam-v2-codedeploy-artifacts/monitoring/monitoring-artifact.zip
+
+      - name: Deploy via CodeDeploy
+        run: |
+          DEPLOYMENT_ID=$(aws deploy create-deployment \
+            --application-name shared-tasteam-monitoring \
+            --deployment-group-name shared-tasteam-monitoring-dg \
+            --s3-location bucket=tasteam-v2-codedeploy-artifacts,key=monitoring/monitoring-artifact.zip,bundleType=zip \
+            --description "Deploy from ${{ github.sha }}" \
+            --query 'deploymentId' \
+            --output text)
+
+          echo "Deployment ID: $DEPLOYMENT_ID"
+          echo "DEPLOYMENT_ID=$DEPLOYMENT_ID" >> $GITHUB_ENV
+
+      - name: Wait for deployment
+        run: |
+          aws deploy wait deployment-successful \
+            --deployment-id ${{ env.DEPLOYMENT_ID }}
+          echo "Deployment succeeded."
