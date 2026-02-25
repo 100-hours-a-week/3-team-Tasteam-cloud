@@ -347,6 +347,18 @@ resource "aws_security_group" "redis_prod" {
     description     = "Redis from Spring ASG instances only"
   }
 
+  # Transitional rule:
+  # Existing Spring ASG instances may not yet have spring_redis_source attached
+  # until Terraform apply + instance refresh completes. app_sg is shared by Caddy,
+  # so remove this rule after rollout to restore least-privilege access.
+  ingress {
+    security_groups = [module.security.app_sg_id]
+    from_port       = 6379
+    to_port         = 6379
+    protocol        = "tcp"
+    description     = "Temporary Redis access from shared app_sg during ASG rollout"
+  }
+
   ingress {
     security_groups = [aws_security_group.caddy_jump_source.id]
     from_port       = 22
