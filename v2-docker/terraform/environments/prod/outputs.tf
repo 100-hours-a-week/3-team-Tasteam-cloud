@@ -23,6 +23,11 @@ output "ec2_caddy_private_key_path" {
   value       = module.ec2_caddy.private_key_path
 }
 
+output "ec2_caddy_public_ip" {
+  description = "Prod caddy EC2 public IP (Redis SSH 점프호스트)"
+  value       = module.ec2_caddy.public_ip
+}
+
 # ──────────────────────────────────────────────
 # ASG Spring
 # ──────────────────────────────────────────────
@@ -68,4 +73,28 @@ output "cloud_map_service_dns" {
 output "uploads_bucket_name" {
   description = "Prod uploads S3 bucket name"
   value       = aws_s3_bucket.uploads.bucket
+}
+
+# ──────────────────────────────────────────────
+# Redis EC2
+# ──────────────────────────────────────────────
+
+output "ec2_redis_instance_id" {
+  description = "Prod Redis EC2 instance ID"
+  value       = module.ec2_redis.instance_id
+}
+
+output "ec2_redis_private_ip" {
+  description = "Prod Redis EC2 private IP"
+  value       = module.ec2_redis.private_ip
+}
+
+output "ec2_redis_key_pair_name" {
+  description = "Prod Redis EC2 key pair name"
+  value       = module.ec2_redis.key_pair_name
+}
+
+output "ec2_redis_private_key_path" {
+  description = "Prod Redis EC2 private key 로컬 파일 경로 (점프호스트 경유 SSH 용도)"
+  value       = module.ec2_redis.private_key_path
 }

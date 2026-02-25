@@ -25,6 +25,46 @@ module "security" {
 }
 
 # ──────────────────────────────────────────────
+# Security Groups — Source Markers (Redis 접근 제어용)
+# 기존 app_sg를 Caddy/ASG가 함께 사용하므로, Redis SG에서는
+# source 전용 SG를 별도 부착해 더 좁게 제어한다.
+# ──────────────────────────────────────────────
+
+resource "aws_security_group" "caddy_jump_source" {
+  name        = "${var.environment}-sg-caddy-jump-source"
+  description = "Marker SG attached to caddy EC2 for Redis SSH source restriction"
+  vpc_id      = module.vpc.vpc_id
+
+  egress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+  }
+
+  tags = {
+    Name = "${var.environment}-sg-caddy-jump-source"
+  }
+}
+
+resource "aws_security_group" "spring_redis_source" {
+  name        = "${var.environment}-sg-spring-redis-source"
+  description = "Marker SG attached to Spring ASG instances for Redis 6379 access"
+  vpc_id      = module.vpc.vpc_id
+
+  egress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+  }
+
+  tags = {
+    Name = "${var.environment}-sg-spring-redis-source"
+  }
+}
+
+# ──────────────────────────────────────────────
 # SSM Parameter Store
 # ──────────────────────────────────────────────
 
@@ -39,8 +79,8 @@ module "ssm" {
     # aws_ssm_parameter 리소스를 통해 동적으로 생성 및 저장되도록 구성되어 있습니다.
 
     # ── Spring Boot: Redis ──
-    "backend/REDIS_HOST" = { type = "String", description = "Redis host" }
-    "backend/REDIS_PORT" = { type = "String", description = "Redis port" }
+    # 참고: REDIS_HOST, REDIS_PORT는 Redis EC2 생성 이후 이 파일 하단의
+    # aws_ssm_parameter 리소스에서 동적으로 생성/관리합니다.
 
     # ── Spring Boot: JWT ──
     "backend/JWT_SECRET"                   = { type = "SecureString", description = "JWT signing secret" }
@@ -246,7 +286,7 @@ module "ec2_caddy" {
   instance_type               = "t3.micro"
   ami_id                      = data.aws_ami.docker_base.id
   subnet_id                   = module.vpc.public_subnet_ids[0]
-  security_group_ids          = [module.security.app_sg_id]
+  security_group_ids          = [module.security.app_sg_id, aws_security_group.caddy_jump_source.id]
   associate_public_ip_address = true
   manage_key_pair             = true
 }
@@ -263,7 +303,7 @@ module "asg_spring" {
   instance_type      = "t3.small"
   ami_id             = "ami-00b6cd96f80a61923"
   subnet_ids         = [module.vpc.private_subnet_ids[0]]
-  security_group_ids = [module.security.app_sg_id]
+  security_group_ids = [module.security.app_sg_id, aws_security_group.spring_redis_source.id]
   aws_region         = var.aws_region
 
   min_size     = 1
@@ -277,6 +317,65 @@ module "asg_spring" {
 
   # Key Pair 자동 생성 여부
   manage_key_pair = true
+}
+
+# ──────────────────────────────────────────────
+# Security Group — Redis (Prod)
+# - 6379: Spring ASG 인스턴스만 허용
+# - 22: Caddy 점프호스트만 허용
+# ──────────────────────────────────────────────
+
+resource "aws_security_group" "redis_prod" {
+  description = "Security group for prod Redis EC2 (private subnet)"
+  name        = "${var.environment}-sg-redis-private"
+  vpc_id      = module.vpc.vpc_id
+
+  egress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+  }
+
+  ingress {
+    security_groups = [aws_security_group.spring_redis_source.id]
+    from_port       = 6379
+    to_port         = 6379
+    protocol        = "tcp"
+    description     = "Redis from Spring ASG instances only"
+  }
+
+  ingress {
+    security_groups = [aws_security_group.caddy_jump_source.id]
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    description     = "SSH from Caddy jump host only"
+  }
+
+  tags = {
+    Name = "${var.environment}-sg-redis-private"
+  }
+}
+
+# ──────────────────────────────────────────────
+# EC2 — Redis (Private)
+# - Private subnet 배치
+# - Public IP/EIP 미사용
+# - SSH는 Caddy 점프호스트 경유
+# ──────────────────────────────────────────────
+
+module "ec2_redis" {
+  source = "../../modules/ec2"
+
+  environment                 = var.environment
+  purpose                     = "redis"
+  instance_type               = "t3.small"
+  ami_id                      = data.aws_ami.docker_base.id
+  subnet_id                   = module.vpc.private_subnet_ids[0]
+  security_group_ids          = [aws_security_group.redis_prod.id]
+  associate_public_ip_address = false
+  manage_key_pair             = true
 }
 
 # ──────────────────────────────────────────────
@@ -475,6 +574,38 @@ module "rds" {
 # SSM — RDS 크리덴셜 자동 저장
 # RDS 출력값을 SSM에 직접 저장 (기존 SSM 모듈과 별도 관리)
 # ──────────────────────────────────────────────
+
+moved {
+  from = module.ssm.aws_ssm_parameter.this["backend/REDIS_HOST"]
+  to   = aws_ssm_parameter.redis_host
+}
+
+moved {
+  from = module.ssm.aws_ssm_parameter.this["backend/REDIS_PORT"]
+  to   = aws_ssm_parameter.redis_port
+}
+
+resource "aws_ssm_parameter" "redis_host" {
+  name        = "/${var.environment}/tasteam/backend/REDIS_HOST"
+  type        = "String"
+  value       = module.ec2_redis.private_ip
+  description = "Redis private IP (prod Redis EC2에서 자동 생성)"
+
+  tags = {
+    Name = "${var.environment}-ssm-backend-REDIS_HOST"
+  }
+}
+
+resource "aws_ssm_parameter" "redis_port" {
+  name        = "/${var.environment}/tasteam/backend/REDIS_PORT"
+  type        = "String"
+  value       = "6379"
+  description = "Redis port (prod Redis EC2에서 자동 설정)"
+
+  tags = {
+    Name = "${var.environment}-ssm-backend-REDIS_PORT"
+  }
+}
 
 resource "aws_ssm_parameter" "db_url" {
   name        = "/${var.environment}/tasteam/backend/DB_URL"
