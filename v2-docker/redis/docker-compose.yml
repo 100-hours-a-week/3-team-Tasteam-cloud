@@ -1,4 +1,4 @@
-# Redis EC2 docker-compose (prod private subnet)
+# Redis-only EC2 docker-compose (prod private subnet)
 # 권장 배치:
 # - compose/.env/설정 파일 경로: /opt/tasteam/redis
 # - 영속 데이터 경로: /opt/tasteam/redis/data
@@ -11,10 +11,15 @@ services:
     image: redis:7.4.2-alpine
     container_name: redis
     restart: unless-stopped
+    stop_grace_period: 1m
     ports:
       - "6379:6379"
     volumes:
       - /opt/tasteam/redis/data:/data
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     command:
       - redis-server
       - --bind
@@ -25,18 +30,24 @@ services:
       - "yes"
       - --appendfsync
       - everysec
+      - --maxmemory
+      - 1gb
+      - --maxmemory-policy
+      - allkeys-lru
       - --save
       - "900 1"
       - --save
       - "300 10"
       - --save
       - "60 10000"
+      - --tcp-keepalive
+      - "60"
       - --protected-mode
       - "no"
       - --dir
       - /data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-h", "127.0.0.1", "-p", "6379", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5

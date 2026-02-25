@@ -1,0 +1,23 @@
+[Unit]
+Description=Tasteam Redis (Docker Compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/tasteam/redis/docker-compose.yml
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/tasteam/redis
+User=ubuntu
+Group=ubuntu
+SupplementaryGroups=docker
+Environment=COMPOSE_PROJECT_NAME=tasteam-redis
+ExecStart=/usr/bin/docker compose -f /opt/tasteam/redis/docker-compose.yml up -d
+ExecStop=/usr/bin/docker compose -f /opt/tasteam/redis/docker-compose.yml down
+ExecReload=/usr/bin/docker compose -f /opt/tasteam/redis/docker-compose.yml up -d
+TimeoutStartSec=0
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
