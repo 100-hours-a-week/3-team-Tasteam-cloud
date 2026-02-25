@@ -27,6 +27,7 @@ resource "aws_instance" "this" {
   }
 
   tags = {
-    Name = "${var.environment}-ec2-${var.purpose}"
+    Name    = "${var.environment}-ec2-${var.purpose}"
+    Purpose = var.purpose
   }
 }
