@@ -10,10 +10,15 @@ variable "environment" {
   default     = "shared"
 }
 
-variable "github_repository" {
-  description = "GitHub repository in owner/repo format"
-  type        = string
-  default     = "100-hours-a-week/3-team-Tasteam-be"
+variable "github_repositories" {
+  description = "GitHub repositories allowed to assume the deploy role (owner/repo format)"
+  type        = list(string)
+  default = [
+    "100-hours-a-week/3-team-Tasteam-be",
+    "100-hours-a-week/3-team-Tasteam-fe",
+    "100-hours-a-week/3-team-tasteam-ai",
+    "100-hours-a-week/3-team-Tasteam-cloud",
+  ]
 }
 
 variable "codedeploy_artifact_bucket_name" {

@@ -439,8 +439,8 @@ resource "aws_iam_role" "github_actions_deploy" {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
-        StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:*"
+        "ForAnyValue:StringLike" = {
+          "token.actions.githubusercontent.com:sub" = [for repo in var.github_repositories : "repo:${repo}:*"]
         }
       }
     }]
