@@ -43,6 +43,7 @@ jobs:
             --application-name shared-tasteam-monitoring \
             --deployment-group-name shared-tasteam-monitoring-dg \
             --s3-location bucket=tasteam-v2-codedeploy-artifacts,key=monitoring/monitoring-artifact.zip,bundleType=zip \
+            --file-exists-behavior OVERWRITE \
             --description "Deploy from ${{ github.sha }}" \
             --query 'deploymentId' \
             --output text)
