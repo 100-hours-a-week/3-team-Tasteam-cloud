@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "v2-docker/monitoring/**"
+  workflow_dispatch:
 
 permissions:
   id-token: write
