@@ -44,6 +44,20 @@ data "aws_ami" "docker_base" {
 }
 
 # ──────────────────────────────────────────────
+# AMI — fck-nat
+# ──────────────────────────────────────────────
+
+data "aws_ami" "fck_nat" {
+  most_recent = true
+  owners      = ["568608671756"]
+
+  filter {
+    name   = "name"
+    values = ["fck-nat-al2023-*-arm64-*"]
+  }
+}
+
+# ──────────────────────────────────────────────
 # IAM — Monitoring EC2 Role
 # Prometheus EC2 SD + Grafana CloudWatch + SSM 파라미터 읽기
 # ──────────────────────────────────────────────
@@ -250,6 +264,22 @@ module "ec2_monitoring" {
   security_group_ids   = [module.security.monitoring_sg_id]
   manage_key_pair      = true
   iam_instance_profile = aws_iam_instance_profile.monitoring.name
+}
+
+# ──────────────────────────────────────────────
+# NAT Instance — monitoring EC2 외부 통신 (Docker Hub)
+# ──────────────────────────────────────────────
+
+module "nat" {
+  source = "../../modules/nat"
+
+  environment            = var.environment
+  vpc_id                 = module.vpc.vpc_id
+  vpc_cidr               = module.vpc.vpc_cidr_block
+  public_subnet_id       = module.vpc.public_subnet_ids[0]
+  private_route_table_id = module.vpc.private_route_table_id
+  ami_id                 = data.aws_ami.fck_nat.id
+  instance_type          = "t4g.micro"
 }
 
 # ──────────────────────────────────────────────
