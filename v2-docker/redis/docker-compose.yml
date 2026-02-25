@@ -1,0 +1,48 @@
+# Redis EC2 docker-compose (prod private subnet)
+# 권장 배치:
+# - compose/.env/설정 파일 경로: /opt/tasteam/redis
+# - 영속 데이터 경로: /opt/tasteam/redis/data
+# 참고:
+# - Redis 6379 접근 제어는 AWS Security Group에서 수행
+# - 현재 앱 인증 파라미터(requirepass) 구성이 없으므로 protected-mode를 비활성화함
+
+services:
+  redis:
+    image: redis:7.4.2-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - /opt/tasteam/redis/data:/data
+    command:
+      - redis-server
+      - --bind
+      - 0.0.0.0
+      - --port
+      - "6379"
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --save
+      - "900 1"
+      - --save
+      - "300 10"
+      - --save
+      - "60 10000"
+      - --protected-mode
+      - "no"
+      - --dir
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
