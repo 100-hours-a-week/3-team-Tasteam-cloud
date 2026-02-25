@@ -167,8 +167,8 @@ resource "aws_security_group" "rds" {}
 |--------|---------|------|
 | backend | `UPPER_SNAKE_CASE` | `DB_URL`, `JWT_SECRET` |
 | frontend | `UPPER_SNAKE_CASE` | `VITE_APP_ENV`, `VITE_API_BASE_URL` |
-| fastapi | `slash + kebab-case` | `openai-api-key`, `db-url` |
-| monitoring | `slash + kebab-case` | `grafana-admin-password` |
+| fastapi | `UPPER_SNAKE_CASE` | `OPENAI_API_KEY`, `DB_URL` |
+| monitoring | `UPPER_SNAKE_CASE` | `GRAFANA_ADMIN_PASSWORD`, `LOKI_HOST` |
 
 #### 경로 예시
 
@@ -176,8 +176,8 @@ resource "aws_security_group" "rds" {}
 /prod/tasteam/backend/DB_URL
 /prod/tasteam/backend/JWT_SECRET
 /prod/tasteam/frontend/VITE_API_BASE_URL
-/prod/tasteam/fastapi/openai-api-key
-/prod/tasteam/monitoring/grafana-admin-password
+/prod/tasteam/fastapi/OPENAI_API_KEY
+/prod/tasteam/monitoring/GRAFANA_ADMIN_PASSWORD
 ```
 ---
 

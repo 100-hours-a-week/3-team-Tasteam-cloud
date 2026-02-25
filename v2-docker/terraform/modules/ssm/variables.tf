@@ -12,8 +12,8 @@ variable "parameters" {
 
   validation {
     condition = alltrue([
-      for k, _ in var.parameters : can(regex("^(backend|frontend)/[A-Z0-9_]+$|^(fastapi|monitoring)/[a-z0-9-]+(?:/[a-z0-9-]+)*$", k))
+      for k, _ in var.parameters : can(regex("^(backend|frontend|fastapi|monitoring)/[A-Z0-9_]+$", k))
     ])
-    error_message = "SSM parameter key must match one of: backend|frontend with UPPER_SNAKE_CASE (e.g. backend/DB_URL), or fastapi|monitoring with slash+kebab-case (e.g. fastapi/openai-api-key)."
+    error_message = "SSM parameter key must use UPPER_SNAKE_CASE for all namespaces (e.g. backend/DB_URL, fastapi/OPENAI_API_KEY, monitoring/GRAFANA_ADMIN_PASSWORD)."
   }
 }

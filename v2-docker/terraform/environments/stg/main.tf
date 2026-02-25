@@ -118,10 +118,10 @@ module "ssm" {
     "frontend/VITE_FIREBASE_VAPID_KEY"       = { type = "String", description = "Firebase VAPID key" }
 
     # ── FastAPI ──
-    "fastapi/openai-api-key" = { type = "SecureString", description = "OpenAI API key" }
-    "fastapi/db-url"         = { type = "SecureString", description = "FastAPI DB connection URL" }
+    "fastapi/OPENAI_API_KEY" = { type = "SecureString", description = "OpenAI API key" }
+    "fastapi/DB_URL"         = { type = "SecureString", description = "FastAPI DB connection URL" }
 
     # ── Monitoring ──
-    "monitoring/grafana-admin-password" = { type = "SecureString", description = "Grafana admin password" }
+    "monitoring/GRAFANA_ADMIN_PASSWORD" = { type = "SecureString", description = "Grafana admin password" }
   }
 }
