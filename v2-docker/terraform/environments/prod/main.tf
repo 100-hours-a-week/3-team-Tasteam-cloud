@@ -162,6 +162,8 @@ module "ssm" {
 
     # ── Monitoring ──
     "monitoring/GRAFANA_ADMIN_PASSWORD" = { type = "SecureString", description = "Grafana admin password" }
+    "monitoring/LOKI_HOST"              = { type = "String", description = "Loki host (shared monitoring EC2)" }
+    "monitoring/PROMETHEUS_HOST"        = { type = "String", description = "Prometheus host (shared monitoring EC2)" }
   }
 }
 
