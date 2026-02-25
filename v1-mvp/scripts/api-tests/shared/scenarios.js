@@ -811,7 +811,7 @@ export function addFavoriteRestaurant(token, restaurantId) {
         payload,
         { headers: getHeaders(token), tags: { name: 'add_favorite', type: 'write' } }
     );
-    check(res, { '즐겨찾기 추가 성공 (200 or 201)': (r) => r.status === 200 || r.status === 201 });
+    check(res, { '즐겨찾기 추가 성공 (200/201) 또는 이미 존재 (409)': (r) => r.status === 200 || r.status === 201 || r.status === 409 });
     return res;
 }
 
@@ -952,11 +952,24 @@ export function executeBrowsingJourney(state) {
         const reviewResult = getRestaurantReviews(state.token, restaurantId);
         if (reviewResult.response && reviewResult.response.status === 200) successCount++;
 
-        // [사용자 이벤트] 40% 확률로 즐겨찾기 추가
+        // [사용자 이벤트] 40% 확률로 즐겨찾기 toggle
         if (Math.random() < 0.4) {
-            addFavoriteRestaurant(state.token, restaurantId);
-            analyticsEvents.push(buildEvent('ui.favorite.sheet_opened', { restaurantId }));
-            analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId, action: 'add' }));
+            const addRes = addFavoriteRestaurant(state.token, restaurantId);
+            if (addRes) {
+                if (addRes.status === 409) {
+                    // 이미 즐겨찾기됨 → toggle off
+                    removeFavoriteRestaurant(state.token, restaurantId);
+                    analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId, action: 'remove' }));
+                } else if (addRes.status === 200 || addRes.status === 201) {
+                    analyticsEvents.push(buildEvent('ui.favorite.sheet_opened', { restaurantId }));
+                    if (Math.random() < 0.5) {
+                        removeFavoriteRestaurant(state.token, restaurantId);
+                        analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId, action: 'remove' }));
+                    } else {
+                        analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId, action: 'add' }));
+                    }
+                }
+            }
         }
     }
 
@@ -1008,11 +1021,24 @@ export function executeSearchingJourney(state) {
             analyticsEvents.push(buildEvent('ui.restaurant.viewed', { restaurantId: lastRestaurantId }));
         }
 
-        // [사용자 이벤트] 20% 확률로 즐겨찾기 추가
+        // [사용자 이벤트] 20% 확률로 즐겨찾기 toggle
         if (Math.random() < 0.2) {
-            addFavoriteRestaurant(state.token, lastRestaurantId);
-            analyticsEvents.push(buildEvent('ui.favorite.sheet_opened', { restaurantId: lastRestaurantId }));
-            analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId: lastRestaurantId, action: 'add' }));
+            const addRes = addFavoriteRestaurant(state.token, lastRestaurantId);
+            if (addRes) {
+                if (addRes.status === 409) {
+                    // 이미 즐겨찾기됨 → toggle off
+                    removeFavoriteRestaurant(state.token, lastRestaurantId);
+                    analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId: lastRestaurantId, action: 'remove' }));
+                } else if (addRes.status === 200 || addRes.status === 201) {
+                    analyticsEvents.push(buildEvent('ui.favorite.sheet_opened', { restaurantId: lastRestaurantId }));
+                    if (Math.random() < 0.5) {
+                        removeFavoriteRestaurant(state.token, lastRestaurantId);
+                        analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId: lastRestaurantId, action: 'remove' }));
+                    } else {
+                        analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId: lastRestaurantId, action: 'add' }));
+                    }
+                }
+            }
         }
     }
 

@@ -24,6 +24,7 @@ import {
     createState,
     batchLogin,
     joinGroup,
+    getMyGroups,
     getReviewKeywords,
     getGroupSubgroups,
     getSubgroupChatRoom,
@@ -103,8 +104,24 @@ export function setup() {
     }
 
     const baseToken = tokens[0];
-    const groupId = joinGroup(baseToken);
     const keywordIds = getReviewKeywords(baseToken);
+
+    // 1. 기존 그룹 조회 (로컬 DB 상태 무관하게 동작)
+    let groupId = null;
+    const myGroupsRes = getMyGroups(baseToken);
+    if (myGroupsRes && myGroupsRes.status === 200) {
+        try {
+            const items = myGroupsRes.json('data.items');
+            if (items && items.length > 0) {
+                groupId = items[0].id;
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    // 2. 속한 그룹 없으면 joinGroup 시도 (실패해도 null로 진행)
+    if (!groupId) {
+        groupId = joinGroup(baseToken);
+    }
 
     // subgroupId 획득
     const subgroupsRes = getGroupSubgroups(baseToken, groupId);
