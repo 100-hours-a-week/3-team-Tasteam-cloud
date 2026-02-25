@@ -20,8 +20,6 @@ loki.write "default" {
 }
 
 // ── 호스트 메트릭: node_exporter ──
-// prometheus.exporter.* 컴포넌트는 Alloy 내장 HTTP 서버(:12345/metrics)에 자동 노출.
-// Prometheus가 prometheus.yml의 alloy job을 통해 :12345를 pull함.
 
 prometheus.exporter.unix "node" {
   set_collectors = ["cpu", "diskstats", "filesystem", "loadavg", "meminfo", "netdev"]
@@ -35,4 +33,32 @@ prometheus.exporter.unix "node" {
 prometheus.exporter.cadvisor "containers" {
   docker_host            = "unix:///var/run/docker.sock"
   store_container_labels = false
+}
+
+// ── Spring Actuator 메트릭 ──
+
+prometheus.scrape "spring" {
+  targets = [{
+    __address__ = "localhost:8080",
+  }]
+  metrics_path    = "/actuator/prometheus"
+  forward_to      = [prometheus.remote_write.default.receiver]
+  scrape_interval = "30s"
+}
+
+// ── 호스트/컨테이너 메트릭 → remote_write push ──
+
+prometheus.scrape "infra" {
+  targets = concat(
+    prometheus.exporter.unix.node.targets,
+    prometheus.exporter.cadvisor.containers.targets,
+  )
+  forward_to      = [prometheus.remote_write.default.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://" + sys.env("PROMETHEUS_HOST") + ":9090/api/v1/write"
+  }
 }

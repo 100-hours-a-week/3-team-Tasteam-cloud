@@ -27,8 +27,6 @@ loki.write "default" {
 }
 
 // ── 호스트 메트릭: node_exporter ──
-// prometheus.exporter.* 컴포넌트는 Alloy 내장 HTTP 서버(:12345/metrics)에 자동 노출.
-// Prometheus가 prometheus.yml의 alloy job을 통해 :12345를 pull함.
 
 prometheus.exporter.unix "node" {
   set_collectors = ["cpu", "diskstats", "filesystem", "loadavg", "meminfo", "netdev"]
@@ -44,10 +42,9 @@ prometheus.exporter.cadvisor "containers" {
   store_container_labels = false
 }
 
-// ── Caddy HTTP 메트릭: admin API → remote_write ──
-// admin API(:2019)는 Docker 내부 네트워크에만 노출.
-// 외부 Prometheus가 직접 접근 불가하므로 Alloy가 로컬 스크래핑 후 push.
-// admin API를 외부 네트워크에 노출하면 config reload, 인증서 조작 등 보안 위협 발생.
+// ── Caddy HTTP 메트릭 ──
+// admin API(:2019)는 Docker 내부 네트워크에만 노출
+// 외부 노출 시 config reload, 인증서 조작 등 보안 위협
 
 prometheus.scrape "caddy" {
   targets = [{
@@ -55,6 +52,17 @@ prometheus.scrape "caddy" {
     __metrics_path__ = "/metrics",
   }]
   forward_to = [prometheus.remote_write.default.receiver]
+}
+
+// ── 호스트/컨테이너 메트릭 → remote_write push ──
+
+prometheus.scrape "infra" {
+  targets = concat(
+    prometheus.exporter.unix.node.targets,
+    prometheus.exporter.cadvisor.containers.targets,
+  )
+  forward_to      = [prometheus.remote_write.default.receiver]
+  scrape_interval = "30s"
 }
 
 prometheus.remote_write "default" {

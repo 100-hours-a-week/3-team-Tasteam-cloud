@@ -2,48 +2,6 @@ global:
   scrape_interval: 30s
   evaluation_interval: 30s
 
-scrape_configs:
-  # ── Spring Actuator 메트릭 (직접 pull) ──
-  - job_name: 'spring-actuator'
-    metrics_path: '/actuator/prometheus'
-    ec2_sd_configs:
-      - region: ap-northeast-2
-        port: 8080
-        filters:
-          - name: "tag:Project"
-            values: ["tasteam"]
-          - name: "tag:Purpose"  # ASG launch template Name 태그 기반
-            values: ["spring"]
-    relabel_configs:
-      - source_labels: [__meta_ec2_private_ip]
-        target_label: __address__
-        replacement: '${1}:8080'
-      - source_labels: [__meta_ec2_tag_Environment]
-        target_label: environment
-      - source_labels: [__meta_ec2_instance_id]
-        target_label: instance_id
-
-  # ── Alloy 메트릭 (node_exporter + cAdvisor + redis_exporter) ──
-  - job_name: 'alloy'
-    ec2_sd_configs:
-      - region: ap-northeast-2
-        port: 12345
-        filters:
-          - name: "tag:Project"
-            values: ["tasteam"]
-    relabel_configs:
-      - source_labels: [__meta_ec2_private_ip]
-        target_label: __address__
-        replacement: '${1}:12345'
-      - source_labels: [__meta_ec2_tag_Environment]
-        target_label: environment
-      - source_labels: [__meta_ec2_tag_Name]
-        target_label: instance_name
-      # fck-nat 인스턴스 제외
-      - source_labels: [__meta_ec2_tag_Name]
-        regex: '.*nat.*'
-        action: drop
-      # monitoring 서버 자체 제외 (Alloy 미설치)
-      - source_labels: [__meta_ec2_tag_Name]
-        regex: '.*monitoring.*'
-        action: drop
+# 모든 메트릭은 각 EC2의 Alloy가 prometheus.remote_write로 직접 push
+# - Spring Actuator: alloy-app.alloy의 prometheus.scrape "spring"
+# - node_exporter / cAdvisor / Redis: alloy-*.alloy의 prometheus.scrape "infra"

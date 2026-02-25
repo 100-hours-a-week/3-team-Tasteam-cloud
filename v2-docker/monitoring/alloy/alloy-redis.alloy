@@ -36,9 +36,25 @@ prometheus.exporter.cadvisor "containers" {
 }
 
 // ── Redis 메트릭 ──
-// prometheus.exporter.* 컴포넌트는 Alloy 내장 HTTP 서버(:12345/metrics)에 자동 노출.
-// Prometheus가 prometheus.yml의 alloy job을 통해 :12345를 pull함.
 
 prometheus.exporter.redis "redis" {
   redis_addr = "redis:6379"
+}
+
+// ── 호스트/컨테이너/Redis 메트릭 → remote_write push ──
+
+prometheus.scrape "infra" {
+  targets = concat(
+    prometheus.exporter.unix.node.targets,
+    prometheus.exporter.cadvisor.containers.targets,
+    prometheus.exporter.redis.redis.targets,
+  )
+  forward_to      = [prometheus.remote_write.default.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://" + sys.env("PROMETHEUS_HOST") + ":9090/api/v1/write"
+  }
 }
