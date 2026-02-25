@@ -12,6 +12,7 @@ resource "aws_instance" "this" {
   key_name                    = var.manage_key_pair ? one(aws_key_pair.this[*].key_name) : var.key_name
   associate_public_ip_address = var.associate_public_ip_address
   iam_instance_profile        = var.iam_instance_profile
+  private_ip                  = var.private_ip
 
   root_block_device {
     volume_size           = var.root_volume_size

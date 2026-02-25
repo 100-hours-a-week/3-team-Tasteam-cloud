@@ -63,3 +63,9 @@ variable "associate_public_ip_address" {
   type        = bool
   default     = false
 }
+
+variable "private_ip" {
+  description = "고정 프라이빗 IP 주소. null이면 AWS가 자동 할당"
+  type        = string
+  default     = null
+}

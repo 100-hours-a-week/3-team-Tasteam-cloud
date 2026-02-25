@@ -259,11 +259,12 @@ module "ec2_monitoring" {
   environment          = var.environment
   purpose              = "monitoring"
   instance_type        = "t3.medium"
-  ami_id               = data.aws_ami.docker_base.id
+  ami_id               = "ami-00b6cd96f80a61923"
   subnet_id            = module.vpc.private_subnet_ids[0]
   security_group_ids   = [module.security.monitoring_sg_id]
   manage_key_pair      = true
   iam_instance_profile = aws_iam_instance_profile.monitoring.name
+  private_ip           = "10.10.131.197"
 }
 
 # ──────────────────────────────────────────────
