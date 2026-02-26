@@ -35,6 +35,7 @@ services:
       - LOKI_HOST=${LOKI_HOST}
       - PROMETHEUS_HOST=${PROMETHEUS_HOST}          # Caddy 메트릭 remote_write용
       - ENVIRONMENT=${ENVIRONMENT:-prod}
+      - ROLE=caddy
       - HOSTNAME=${HOSTNAME}
     command:
       - run

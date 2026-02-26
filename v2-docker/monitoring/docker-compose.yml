@@ -49,6 +49,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock  # cAdvisor + Docker 로그 수집용
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-prod}
+      - ROLE=monitoring
       - HOSTNAME=${HOSTNAME}
     command:
       - run
