@@ -44,7 +44,7 @@ resource "aws_iam_role_policy" "ecr" {
 }
 
 # ──────────────────────────────────────────────
-# SSM — 파라미터 읽기 (backend 네임스페이스)
+# SSM — 파라미터 읽기 (backend + monitoring 네임스페이스)
 # ──────────────────────────────────────────────
 
 resource "aws_iam_role_policy" "ssm" {
@@ -62,7 +62,9 @@ resource "aws_iam_role_policy" "ssm" {
       ]
       Resource = [
         "arn:aws:ssm:*:*:parameter/${var.environment}/tasteam/backend",
-        "arn:aws:ssm:*:*:parameter/${var.environment}/tasteam/backend/*"
+        "arn:aws:ssm:*:*:parameter/${var.environment}/tasteam/backend/*",
+        "arn:aws:ssm:*:*:parameter/${var.environment}/tasteam/monitoring",
+        "arn:aws:ssm:*:*:parameter/${var.environment}/tasteam/monitoring/*"
       ]
     }]
   })
