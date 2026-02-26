@@ -13,6 +13,13 @@ discovery.docker "containers" {
 loki.source.docker "caddy_container" {
   host       = "unix:///var/run/docker.sock"
   targets    = discovery.docker.containers.targets
+  forward_to = [loki.process.caddy_labels.receiver]
+}
+
+loki.process "caddy_labels" {
+  stage.static_labels {
+    values = { job = "caddy" }
+  }
   forward_to = [loki.write.default.receiver]
 }
 
