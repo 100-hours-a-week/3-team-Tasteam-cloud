@@ -276,6 +276,55 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
   }
 }
 
+data "aws_iam_policy_document" "uploads_v1_migration" {
+  count = length(var.v1_migration_principal_arns) > 0 ? 1 : 0
+
+  statement {
+    sid = "AllowV1MigrationBucketList"
+
+    principals {
+      type        = "AWS"
+      identifiers = var.v1_migration_principal_arns
+    }
+
+    actions = [
+      "s3:ListBucket",
+      "s3:GetBucketLocation",
+      "s3:ListBucketMultipartUploads"
+    ]
+
+    resources = [aws_s3_bucket.uploads.arn]
+  }
+
+  statement {
+    sid = "AllowV1MigrationObjectAccess"
+
+    principals {
+      type        = "AWS"
+      identifiers = var.v1_migration_principal_arns
+    }
+
+    actions = [
+      "s3:PutObject",
+      "s3:GetObject",
+      "s3:DeleteObject",
+      "s3:AbortMultipartUpload",
+      "s3:ListMultipartUploadParts",
+      "s3:PutObjectTagging",
+      "s3:GetObjectTagging"
+    ]
+
+    resources = ["${aws_s3_bucket.uploads.arn}/*"]
+  }
+}
+
+resource "aws_s3_bucket_policy" "uploads_v1_migration" {
+  count = length(var.v1_migration_principal_arns) > 0 ? 1 : 0
+
+  bucket = aws_s3_bucket.uploads.id
+  policy = data.aws_iam_policy_document.uploads_v1_migration[0].json
+}
+
 # ──────────────────────────────────────────────
 # EC2 — Caddy (Reverse Proxy)
 # ──────────────────────────────────────────────

@@ -27,3 +27,9 @@ variable "upload_bucket_name" {
   type        = string
   default     = "tasteam-dev-uploads-kr"
 }
+
+variable "v1_migration_principal_arns" {
+  description = "IAM principal ARNs in v1 account allowed to migrate objects into the uploads bucket"
+  type        = list(string)
+  default     = []
+}
