@@ -13,6 +13,11 @@ output "private_route_table_id" {
   value       = module.vpc.private_route_table_id
 }
 
+output "public_route_table_id" {
+  description = "Prod public route table ID"
+  value       = module.vpc.public_route_table_id
+}
+
 output "ec2_caddy_key_pair_name" {
   description = "Prod caddy EC2 key pair name"
   value       = module.ec2_caddy.key_pair_name

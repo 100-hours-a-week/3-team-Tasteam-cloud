@@ -367,6 +367,23 @@ resource "aws_route" "dev_public_to_shared" {
   vpc_peering_connection_id = module.peering_dev.peering_connection_id
 }
 
+# prod Caddy EC2(퍼블릭 서브넷) → shared VPC 피어링 라우트
+# dev와 동일 이슈: Caddy의 Alloy가 shared Loki/Prometheus에 push 불가
+data "aws_route_table" "prod_public" {
+  vpc_id = data.terraform_remote_state.prod.outputs.vpc_id
+
+  filter {
+    name   = "tag:Name"
+    values = ["prod-rtb-public"]
+  }
+}
+
+resource "aws_route" "prod_public_to_shared" {
+  route_table_id            = data.aws_route_table.prod_public.id
+  destination_cidr_block    = "10.10.0.0/16"
+  vpc_peering_connection_id = module.peering_prod.peering_connection_id
+}
+
 # ──────────────────────────────────────────────
 # S3 — CodeDeploy Artifact Bucket
 # ──────────────────────────────────────────────
