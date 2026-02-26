@@ -1,0 +1,82 @@
+// ── 로그 수집: 모니터링 스택 컨테이너 로그 → Loki push ──
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+  filter {
+    name   = "name"
+    values = ["prometheus", "loki", "grafana"]
+  }
+}
+
+loki.source.docker "monitoring_containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.docker.containers.targets
+  forward_to = [loki.process.add_labels.receiver]
+}
+
+loki.process "add_labels" {
+  stage.static_labels {
+    values = { job = "monitoring" }
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+  external_labels = {
+    environment = sys.env("ENVIRONMENT"),
+    instance    = sys.env("HOSTNAME"),
+  }
+}
+
+// ── 호스트 메트릭: node_exporter ──
+
+prometheus.exporter.unix "node" {
+  set_collectors = ["cpu", "diskstats", "filesystem", "loadavg", "meminfo", "netdev"]
+  filesystem {
+    mount_points_exclude = "^/(sys|proc|dev|host|etc)($|/)"
+  }
+}
+
+// ── 컨테이너 메트릭: cAdvisor ──
+
+prometheus.exporter.cadvisor "containers" {
+  docker_host            = "unix:///var/run/docker.sock"
+  store_container_labels = false
+}
+
+// ── 모니터링 스택 자체 메트릭 scrape ──
+// Prometheus / Grafana / Loki 모두 /metrics 엔드포인트 노출
+
+prometheus.scrape "monitoring_stack" {
+  targets = [
+    { __address__ = "prometheus:9090", job = "prometheus" },
+    { __address__ = "grafana:3000",    job = "grafana"    },
+    { __address__ = "loki:3100",       job = "loki"       },
+  ]
+  forward_to      = [prometheus.remote_write.default.receiver]
+  scrape_interval = "30s"
+}
+
+// ── 호스트/컨테이너 메트릭 → remote_write push ──
+
+prometheus.scrape "infra" {
+  targets = concat(
+    prometheus.exporter.unix.node.targets,
+    prometheus.exporter.cadvisor.containers.targets,
+  )
+  forward_to      = [prometheus.remote_write.default.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+  }
+  external_labels = {
+    environment = sys.env("ENVIRONMENT"),
+    instance    = sys.env("HOSTNAME"),
+  }
+}

@@ -38,6 +38,26 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
 
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    restart: unless-stopped
+    ports:
+      - "12345:12345"  # Alloy 자체 텔레메트리
+    volumes:
+      - ./alloy/alloy-monitoring.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock  # cAdvisor + Docker 로그 수집용
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-prod}
+      - HOSTNAME=${HOSTNAME}
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+    depends_on:
+      - prometheus
+      - loki
+
 volumes:
   prometheus_data:
   loki_data:
