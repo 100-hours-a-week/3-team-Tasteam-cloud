@@ -57,3 +57,23 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    restart: unless-stopped
+    ports:
+      - "12345:12345"
+    volumes:
+      - ./alloy-redis.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock  # cAdvisor + Docker 로그 수집용
+    environment:
+      - LOKI_HOST=${LOKI_HOST}
+      - PROMETHEUS_HOST=${PROMETHEUS_HOST}
+      - ENVIRONMENT=${ENVIRONMENT:-prod}
+      - ROLE=redis
+      - HOSTNAME=${HOSTNAME}
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
