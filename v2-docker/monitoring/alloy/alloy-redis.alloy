@@ -1,11 +1,18 @@
-// ── 로그 수집 ──
+// ── 로그 수집: Docker 컨테이너 로그 → Loki push ──
+// Redis는 stdout으로 로그 출력 (json-file 드라이버).
+// Docker 소켓으로 직접 수집 (cAdvisor용으로 이미 마운트됨).
 
-local.file_match "redis_logs" {
-  path_targets = [{"__path__" = "/var/log/app/*.log"}]
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+  filter {
+    name   = "name"
+    values = ["redis"]
+  }
 }
 
-loki.source.file "redis_logs" {
-  targets    = local.file_match.redis_logs.targets
+loki.source.docker "redis_container" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.docker.containers.targets
   forward_to = [loki.process.redis_labels.receiver]
 }
 
