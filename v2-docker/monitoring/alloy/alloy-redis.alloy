@@ -51,24 +51,57 @@ prometheus.exporter.redis "redis" {
 
 // ── 호스트/컨테이너/Redis 메트릭 → remote_write push ──
 
+prometheus.relabel "node" {
+  forward_to = [prometheus.remote_write.default.receiver]
+  rule {
+    target_label = "job"
+    replacement  = "node"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = sys.env("HOSTNAME")
+  }
+}
+
 prometheus.scrape "node" {
   targets         = prometheus.exporter.unix.node.targets
-  job_name        = "node"
-  forward_to      = [prometheus.remote_write.default.receiver]
+  forward_to      = [prometheus.relabel.node.receiver]
   scrape_interval = "30s"
+}
+
+prometheus.relabel "cadvisor" {
+  forward_to = [prometheus.remote_write.default.receiver]
+  rule {
+    target_label = "job"
+    replacement  = "cadvisor"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = sys.env("HOSTNAME")
+  }
 }
 
 prometheus.scrape "cadvisor" {
   targets         = prometheus.exporter.cadvisor.containers.targets
-  job_name        = "cadvisor"
-  forward_to      = [prometheus.remote_write.default.receiver]
+  forward_to      = [prometheus.relabel.cadvisor.receiver]
   scrape_interval = "30s"
+}
+
+prometheus.relabel "redis" {
+  forward_to = [prometheus.remote_write.default.receiver]
+  rule {
+    target_label = "job"
+    replacement  = "redis"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = sys.env("HOSTNAME")
+  }
 }
 
 prometheus.scrape "redis" {
   targets         = prometheus.exporter.redis.redis.targets
-  job_name        = "redis"
-  forward_to      = [prometheus.remote_write.default.receiver]
+  forward_to      = [prometheus.relabel.redis.receiver]
   scrape_interval = "30s"
 }
 

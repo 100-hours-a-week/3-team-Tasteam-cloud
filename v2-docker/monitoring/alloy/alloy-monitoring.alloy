@@ -51,29 +51,59 @@ prometheus.exporter.cadvisor "containers" {
 // ── 모니터링 스택 자체 메트릭 scrape ──
 // Prometheus / Grafana / Loki 모두 /metrics 엔드포인트 노출
 
+prometheus.relabel "monitoring_stack" {
+  forward_to = [prometheus.remote_write.default.receiver]
+  rule {
+    target_label = "instance"
+    replacement  = sys.env("HOSTNAME")
+  }
+}
+
 prometheus.scrape "monitoring_stack" {
   targets = [
     { __address__ = "prometheus:9090", job = "prometheus" },
     { __address__ = "grafana:3000",    job = "grafana"    },
     { __address__ = "loki:3100",       job = "loki"       },
   ]
-  forward_to      = [prometheus.remote_write.default.receiver]
+  forward_to      = [prometheus.relabel.monitoring_stack.receiver]
   scrape_interval = "30s"
 }
 
 // ── 호스트/컨테이너 메트릭 → remote_write push ──
 
+prometheus.relabel "node" {
+  forward_to = [prometheus.remote_write.default.receiver]
+  rule {
+    target_label = "job"
+    replacement  = "node"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = sys.env("HOSTNAME")
+  }
+}
+
 prometheus.scrape "node" {
   targets         = prometheus.exporter.unix.node.targets
-  job_name        = "node"
-  forward_to      = [prometheus.remote_write.default.receiver]
+  forward_to      = [prometheus.relabel.node.receiver]
   scrape_interval = "30s"
+}
+
+prometheus.relabel "cadvisor" {
+  forward_to = [prometheus.remote_write.default.receiver]
+  rule {
+    target_label = "job"
+    replacement  = "cadvisor"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = sys.env("HOSTNAME")
+  }
 }
 
 prometheus.scrape "cadvisor" {
   targets         = prometheus.exporter.cadvisor.containers.targets
-  job_name        = "cadvisor"
-  forward_to      = [prometheus.remote_write.default.receiver]
+  forward_to      = [prometheus.relabel.cadvisor.receiver]
   scrape_interval = "30s"
 }
 

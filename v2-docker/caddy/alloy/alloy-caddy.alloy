@@ -54,28 +54,58 @@ prometheus.exporter.cadvisor "containers" {
 // admin API(:2019)는 Docker 내부 네트워크에만 노출
 // 외부 노출 시 config reload, 인증서 조작 등 보안 위협
 
+prometheus.relabel "caddy" {
+  forward_to = [prometheus.remote_write.default.receiver]
+  rule {
+    target_label = "instance"
+    replacement  = sys.env("HOSTNAME")
+  }
+}
+
 prometheus.scrape "caddy" {
   targets = [{
     __address__      = "caddy:2019",
     __metrics_path__ = "/metrics",
     job              = "caddy",
   }]
-  forward_to = [prometheus.remote_write.default.receiver]
+  forward_to = [prometheus.relabel.caddy.receiver]
 }
 
 // ── 호스트/컨테이너 메트릭 → remote_write push ──
 
+prometheus.relabel "node" {
+  forward_to = [prometheus.remote_write.default.receiver]
+  rule {
+    target_label = "job"
+    replacement  = "node"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = sys.env("HOSTNAME")
+  }
+}
+
 prometheus.scrape "node" {
   targets         = prometheus.exporter.unix.node.targets
-  job_name        = "node"
-  forward_to      = [prometheus.remote_write.default.receiver]
+  forward_to      = [prometheus.relabel.node.receiver]
   scrape_interval = "30s"
+}
+
+prometheus.relabel "cadvisor" {
+  forward_to = [prometheus.remote_write.default.receiver]
+  rule {
+    target_label = "job"
+    replacement  = "cadvisor"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = sys.env("HOSTNAME")
+  }
 }
 
 prometheus.scrape "cadvisor" {
   targets         = prometheus.exporter.cadvisor.containers.targets
-  job_name        = "cadvisor"
-  forward_to      = [prometheus.remote_write.default.receiver]
+  forward_to      = [prometheus.relabel.cadvisor.receiver]
   scrape_interval = "30s"
 }
 
