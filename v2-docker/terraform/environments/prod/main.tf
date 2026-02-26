@@ -75,8 +75,10 @@ module "ssm" {
 
   parameters = {
     # ── Spring Boot: DB ──
-    # 참고: DB_URL, DB_USERNAME, DB_PASSWORD는 이 파일 하단(RDS 모듈 부근)에
-    # aws_ssm_parameter 리소스를 통해 동적으로 생성 및 저장되도록 구성되어 있습니다.
+    # 참고: DB_URL은 이 파일 하단(RDS 모듈 부근)의 aws_ssm_parameter 리소스로
+    # 동적으로 생성/관리합니다. DB_USERNAME, DB_PASSWORD는 수동 입력값(SSM)입니다.
+    "backend/DB_USERNAME" = { type = "SecureString", description = "DB username" }
+    "backend/DB_PASSWORD" = { type = "SecureString", description = "DB password" }
 
     # ── Spring Boot: Redis ──
     # 참고: REDIS_HOST, REDIS_PORT는 Redis EC2 생성 이후 이 파일 하단의
@@ -352,7 +354,7 @@ module "asg_spring" {
   environment        = var.environment
   purpose            = "spring"
   instance_type      = "t3.small"
-  ami_id             = "ami-00b6cd96f80a61923"
+  ami_id             = "ami-0d7b2faa7f90b6334"
   subnet_ids         = [module.vpc.private_subnet_ids[0]]
   security_group_ids = [module.security.app_sg_id, aws_security_group.spring_redis_source.id]
   aws_region         = var.aws_region
@@ -648,6 +650,16 @@ moved {
   to   = aws_ssm_parameter.redis_port
 }
 
+moved {
+  from = aws_ssm_parameter.db_username
+  to   = module.ssm.aws_ssm_parameter.this["backend/DB_USERNAME"]
+}
+
+moved {
+  from = aws_ssm_parameter.db_password
+  to   = module.ssm.aws_ssm_parameter.this["backend/DB_PASSWORD"]
+}
+
 resource "aws_ssm_parameter" "redis_host" {
   name        = "/${var.environment}/tasteam/backend/REDIS_HOST"
   type        = "String"
@@ -678,27 +690,5 @@ resource "aws_ssm_parameter" "db_url" {
 
   tags = {
     Name = "${var.environment}-ssm-backend-DB_URL"
-  }
-}
-
-resource "aws_ssm_parameter" "db_username" {
-  name        = "/${var.environment}/tasteam/backend/DB_USERNAME"
-  type        = "SecureString"
-  value       = module.rds.username
-  description = "DB 마스터 유저 이름 (RDS 모듈에서 자동 생성)"
-
-  tags = {
-    Name = "${var.environment}-ssm-backend-DB_USERNAME"
-  }
-}
-
-resource "aws_ssm_parameter" "db_password" {
-  name        = "/${var.environment}/tasteam/backend/DB_PASSWORD"
-  type        = "SecureString"
-  value       = module.rds.password
-  description = "DB 마스터 비밀번호 (RDS 모듈에서 자동 생성)"
-
-  tags = {
-    Name = "${var.environment}-ssm-backend-DB_PASSWORD"
   }
 }
