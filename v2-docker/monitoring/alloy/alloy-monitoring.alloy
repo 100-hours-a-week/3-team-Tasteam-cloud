@@ -27,6 +27,7 @@ loki.write "default" {
   }
   external_labels = {
     environment = sys.env("ENVIRONMENT"),
+    role        = sys.env("ROLE"),
     instance    = sys.env("HOSTNAME"),
   }
 }
@@ -62,11 +63,16 @@ prometheus.scrape "monitoring_stack" {
 
 // ── 호스트/컨테이너 메트릭 → remote_write push ──
 
-prometheus.scrape "infra" {
-  targets = concat(
-    prometheus.exporter.unix.node.targets,
-    prometheus.exporter.cadvisor.containers.targets,
-  )
+prometheus.scrape "node" {
+  targets         = prometheus.exporter.unix.node.targets
+  job_name        = "node"
+  forward_to      = [prometheus.remote_write.default.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.scrape "cadvisor" {
+  targets         = prometheus.exporter.cadvisor.containers.targets
+  job_name        = "cadvisor"
   forward_to      = [prometheus.remote_write.default.receiver]
   scrape_interval = "30s"
 }
@@ -77,6 +83,7 @@ prometheus.remote_write "default" {
   }
   external_labels = {
     environment = sys.env("ENVIRONMENT"),
+    role        = sys.env("ROLE"),
     instance    = sys.env("HOSTNAME"),
   }
 }

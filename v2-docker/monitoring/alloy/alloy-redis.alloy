@@ -6,6 +6,13 @@ local.file_match "redis_logs" {
 
 loki.source.file "redis_logs" {
   targets    = local.file_match.redis_logs.targets
+  forward_to = [loki.process.redis_labels.receiver]
+}
+
+loki.process "redis_labels" {
+  stage.static_labels {
+    values = { job = "redis" }
+  }
   forward_to = [loki.write.default.receiver]
 }
 
@@ -15,6 +22,7 @@ loki.write "default" {
   }
   external_labels = {
     environment = sys.env("ENVIRONMENT"),
+    role        = sys.env("ROLE"),
     instance    = sys.env("HOSTNAME"),
   }
 }
@@ -43,12 +51,23 @@ prometheus.exporter.redis "redis" {
 
 // ── 호스트/컨테이너/Redis 메트릭 → remote_write push ──
 
-prometheus.scrape "infra" {
-  targets = concat(
-    prometheus.exporter.unix.node.targets,
-    prometheus.exporter.cadvisor.containers.targets,
-    prometheus.exporter.redis.redis.targets,
-  )
+prometheus.scrape "node" {
+  targets         = prometheus.exporter.unix.node.targets
+  job_name        = "node"
+  forward_to      = [prometheus.remote_write.default.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.scrape "cadvisor" {
+  targets         = prometheus.exporter.cadvisor.containers.targets
+  job_name        = "cadvisor"
+  forward_to      = [prometheus.remote_write.default.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.scrape "redis" {
+  targets         = prometheus.exporter.redis.redis.targets
+  job_name        = "redis"
   forward_to      = [prometheus.remote_write.default.receiver]
   scrape_interval = "30s"
 }
@@ -56,5 +75,10 @@ prometheus.scrape "infra" {
 prometheus.remote_write "default" {
   endpoint {
     url = "http://" + sys.env("PROMETHEUS_HOST") + ":9090/api/v1/write"
+  }
+  external_labels = {
+    environment = sys.env("ENVIRONMENT"),
+    role        = sys.env("ROLE"),
+    instance    = sys.env("HOSTNAME"),
   }
 }
