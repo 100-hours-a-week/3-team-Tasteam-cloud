@@ -51,9 +51,11 @@ prometheus.exporter.cadvisor "containers" {
 }
 
 // ── Redis 메트릭 ──
+// Alloy와 Redis가 다른 compose 프로젝트 네트워크에 있으므로
+// 컨테이너 hostname 대신 호스트 게이트웨이를 통해 접근
 
 prometheus.exporter.redis "redis" {
-  redis_addr = "redis:6379"
+  redis_addr = "host.docker.internal:6379"
 }
 
 // ── 호스트/컨테이너/Redis 메트릭 → remote_write push ──

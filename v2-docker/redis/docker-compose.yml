@@ -64,6 +64,8 @@ services:
     restart: unless-stopped
     ports:
       - "12345:12345"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # 호스트 포트(Redis 6379) 접근용
     volumes:
       - ./alloy-redis.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock  # cAdvisor + Docker 로그 수집용
