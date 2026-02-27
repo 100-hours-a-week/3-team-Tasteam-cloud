@@ -43,6 +43,16 @@ output "github_actions_deploy_role_arn" {
   value       = aws_iam_role.github_actions_deploy.arn
 }
 
+output "backend_readonly_paramstore_user_names" {
+  description = "Backend IAM user names with ReadOnly + Parameter Store full access"
+  value       = sort([for u in aws_iam_user.backend_readonly_paramstore : u.name])
+}
+
+output "backend_readonly_paramstore_user_arns" {
+  description = "Backend IAM user ARNs with ReadOnly + Parameter Store full access"
+  value       = { for name, user in aws_iam_user.backend_readonly_paramstore : name => user.arn }
+}
+
 output "codedeploy_artifact_bucket_name" {
   description = "S3 bucket name for CodeDeploy artifacts"
   value       = aws_s3_bucket.codedeploy_artifacts.bucket

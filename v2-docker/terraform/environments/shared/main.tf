@@ -531,6 +531,91 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
 }
 
 # ──────────────────────────────────────────────
+# IAM — Backend User (ReadOnly + Parameter Store Full)
+# 액세스 키는 tfstate 저장 방지를 위해 AWS 콘솔에서 수동 생성
+# ──────────────────────────────────────────────
+
+locals {
+  backend_readonly_paramstore_users = toset([
+    "sei",
+    "devon",
+    "jian"
+  ])
+}
+
+resource "aws_iam_user" "backend_readonly_paramstore" {
+  for_each = local.backend_readonly_paramstore_users
+
+  name = each.value
+  path = "/"
+
+  tags = {
+    Name = each.value
+  }
+}
+
+resource "aws_iam_user_policy_attachment" "backend_readonly_access" {
+  for_each = local.backend_readonly_paramstore_users
+
+  user       = aws_iam_user.backend_readonly_paramstore[each.key].name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
+resource "aws_iam_user_login_profile" "backend_console_login" {
+  for_each = local.backend_readonly_paramstore_users
+
+  user                    = aws_iam_user.backend_readonly_paramstore[each.key].name
+  password_reset_required = true
+}
+
+resource "aws_iam_user_policy" "backend_parameter_store_full" {
+  for_each = local.backend_readonly_paramstore_users
+
+  name = "parameter-store-full"
+  user = aws_iam_user.backend_readonly_paramstore[each.key].name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:AddTagsToResource",
+          "ssm:DeleteParameter",
+          "ssm:DeleteParameters",
+          "ssm:GetParameter",
+          "ssm:GetParameterHistory",
+          "ssm:GetParameters",
+          "ssm:GetParametersByPath",
+          "ssm:LabelParameterVersion",
+          "ssm:ListTagsForResource",
+          "ssm:PutParameter",
+          "ssm:RemoveTagsFromResource",
+          "ssm:UnlabelParameterVersion"
+        ]
+        Resource = "arn:aws:ssm:*:*:parameter/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:DescribeParameters"]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:Encrypt",
+          "kms:GenerateDataKey",
+          "kms:ReEncrypt*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# ──────────────────────────────────────────────
 # ECR — Backend Repository
 # ──────────────────────────────────────────────
 
