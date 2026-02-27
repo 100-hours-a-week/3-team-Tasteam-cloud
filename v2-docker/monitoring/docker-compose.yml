@@ -51,6 +51,7 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-prod}
       - ROLE=monitoring
       - HOSTNAME=${HOSTNAME}
+      - POSTGRES_DSN=${POSTGRES_DSN}
     command:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
