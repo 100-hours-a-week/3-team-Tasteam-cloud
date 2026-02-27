@@ -7,6 +7,14 @@ resource "aws_vpc_peering_connection" "this" {
   peer_vpc_id = var.accepter_vpc_id
   auto_accept = true
 
+  requester {
+    allow_remote_vpc_dns_resolution = true
+  }
+
+  accepter {
+    allow_remote_vpc_dns_resolution = true
+  }
+
   tags = {
     Name = "${var.environment}-pcx-${var.peer_environment}"
   }
