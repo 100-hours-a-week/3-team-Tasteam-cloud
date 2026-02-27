@@ -103,3 +103,13 @@ output "ec2_redis_private_key_path" {
   description = "Prod Redis EC2 private key 로컬 파일 경로 (점프호스트 경유 SSH 용도)"
   value       = module.ec2_redis.private_key_path
 }
+
+output "rds_address" {
+  description = "RDS endpoint hostname"
+  value       = module.rds.address
+}
+
+output "rds_port" {
+  description = "RDS port"
+  value       = module.rds.port
+}
