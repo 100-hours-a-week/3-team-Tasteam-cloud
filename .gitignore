@@ -8,6 +8,11 @@ terraform.tfstate.d/
 # Lambda build artifacts
 v2-docker/terraform/modules/lambda-sd/builds/
 
+# 모니터링 데이터 (bind mount, 서버 로컬에만 유지)
+v2-docker/monitoring/grafana/data/
+v2-docker/monitoring/prometheus/data/
+v2-docker/monitoring/loki/data/
+
 # MacOS
 .DS_Store
 .idea

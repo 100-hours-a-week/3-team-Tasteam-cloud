@@ -28,4 +28,11 @@ if command -v aws >/dev/null 2>&1; then
   done
 fi
 
+# 바인드 마운트 데이터 디렉토리 생성 및 권한 설정
+# - Prometheus: nobody (uid 65534), Loki: uid 10001, Grafana: uid 472
+mkdir -p prometheus/data loki/data grafana/data
+sudo chown -R 65534:65534 prometheus/data
+sudo chown -R 10001:10001 loki/data
+sudo chown -R 472:472     grafana/data
+
 docker compose up -d

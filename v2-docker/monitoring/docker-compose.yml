@@ -7,7 +7,7 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
+      - ./prometheus/data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=15d'
@@ -22,7 +22,7 @@ services:
       - "3100:3100"
     volumes:
       - ./loki/loki.yml:/etc/loki/local-config.yaml:ro
-      - loki_data:/loki
+      - ./loki/data:/loki
     command:
       - '-config.file=/etc/loki/local-config.yaml'
 
@@ -34,7 +34,7 @@ services:
       - "3000:3000"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - grafana_data:/var/lib/grafana
+      - ./grafana/data:/var/lib/grafana
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
 
@@ -60,7 +60,3 @@ services:
       - prometheus
       - loki
 
-volumes:
-  prometheus_data:
-  loki_data:
-  grafana_data:
