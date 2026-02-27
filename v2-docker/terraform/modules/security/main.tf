@@ -91,6 +91,14 @@ resource "aws_security_group" "rds" {
     description     = "PostgreSQL from app server only"
   }
 
+  ingress {
+    cidr_blocks = var.shared_vpc_cidr != null ? [var.shared_vpc_cidr] : []
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    description = "PostgreSQL from shared monitoring (postgres exporter)"
+  }
+
   tags = {
     Name = "${var.environment}-sg-rds"
   }
