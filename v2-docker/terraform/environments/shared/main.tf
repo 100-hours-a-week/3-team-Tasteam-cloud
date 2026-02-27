@@ -550,3 +550,20 @@ resource "aws_ecr_repository" "backend" {
     Name = "${var.environment}-ecr-backend"
   }
 }
+
+# ──────────────────────────────────────────────
+# SSM — Monitoring POSTGRES_DSN
+# 모니터링 Alloy가 prod RDS에 접속하기 위한 DSN
+# Terraform이 RDS 주소 포함한 템플릿 생성, 사용자가 실제 자격증명으로 값 수정
+# ──────────────────────────────────────────────
+
+resource "aws_ssm_parameter" "monitoring_postgres_dsn" {
+  name        = "/shared/tasteam/monitoring/POSTGRES_DSN"
+  type        = "SecureString"
+  value       = "postgresql://CHANGE_ME:CHANGE_ME@${data.terraform_remote_state.prod.outputs.rds_address}:${data.terraform_remote_state.prod.outputs.rds_port}/tasteam?sslmode=require"
+  description = "Alloy postgres exporter DSN for prod RDS"
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
