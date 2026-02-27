@@ -53,6 +53,16 @@ output "backend_readonly_paramstore_user_arns" {
   value       = { for name, user in aws_iam_user.backend_readonly_paramstore : name => user.arn }
 }
 
+output "cloud_full_access_clay_user_name" {
+  description = "Cloud IAM user name with AdministratorAccess"
+  value       = aws_iam_user.backend_full_access_clay.name
+}
+
+output "cloud_full_access_clay_user_arn" {
+  description = "Cloud IAM user ARN with AdministratorAccess"
+  value       = aws_iam_user.backend_full_access_clay.arn
+}
+
 output "codedeploy_artifact_bucket_name" {
   description = "S3 bucket name for CodeDeploy artifacts"
   value       = aws_s3_bucket.codedeploy_artifacts.bucket

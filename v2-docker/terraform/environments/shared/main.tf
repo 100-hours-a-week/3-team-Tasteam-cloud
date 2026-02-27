@@ -616,6 +616,29 @@ resource "aws_iam_user_policy" "backend_parameter_store_full" {
 }
 
 # ──────────────────────────────────────────────
+# IAM — Cloud User (Full Access)
+# ──────────────────────────────────────────────
+
+resource "aws_iam_user" "backend_full_access_clay" {
+  name = "clay"
+  path = "/"
+
+  tags = {
+    Name = "clay"
+  }
+}
+
+resource "aws_iam_user_login_profile" "backend_full_access_clay_console_login" {
+  user                    = aws_iam_user.backend_full_access_clay.name
+  password_reset_required = true
+}
+
+resource "aws_iam_user_policy_attachment" "backend_full_access_clay_admin" {
+  user       = aws_iam_user.backend_full_access_clay.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+# ──────────────────────────────────────────────
 # ECR — Backend Repository
 # ──────────────────────────────────────────────
 
