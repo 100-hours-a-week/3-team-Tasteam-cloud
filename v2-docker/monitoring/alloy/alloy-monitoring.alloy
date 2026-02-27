@@ -107,6 +107,32 @@ prometheus.scrape "cadvisor" {
   scrape_interval = "30s"
 }
 
+// ── PostgreSQL 메트릭 (prod RDS) ──
+// POSTGRES_DSN: deploy.sh가 SSM에서 fetch → .env에 주입
+// 모니터링 서버에서 1회만 수집 (ASG 스케일아웃 시 중복 방지)
+
+prometheus.exporter.postgres "rds" {
+  data_source_names = [sys.env("POSTGRES_DSN")]
+}
+
+prometheus.relabel "postgres" {
+  forward_to = [prometheus.remote_write.default.receiver]
+  rule {
+    target_label = "job"
+    replacement  = "postgres"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = "prod-rds"
+  }
+}
+
+prometheus.scrape "postgres" {
+  targets         = prometheus.exporter.postgres.rds.targets
+  forward_to      = [prometheus.relabel.postgres.receiver]
+  scrape_interval = "30s"
+}
+
 prometheus.remote_write "default" {
   endpoint {
     url = "http://prometheus:9090/api/v1/write"
