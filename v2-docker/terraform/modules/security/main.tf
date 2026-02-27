@@ -44,15 +44,13 @@ resource "aws_security_group" "app" {
 }
 
 resource "aws_security_group_rule" "app_prometheus_actuator" {
-  count = var.shared_vpc_cidr != null ? 1 : 0
-
-  type              = "ingress"
-  from_port         = 8080
-  to_port           = 8080
-  protocol          = "tcp"
-  cidr_blocks       = [var.shared_vpc_cidr]
-  security_group_id = aws_security_group.app.id
-  description       = "Prometheus scrape - Spring Actuator (from shared VPC)"
+  type                     = "ingress"
+  from_port                = 8080
+  to_port                  = 8080
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.app.id
+  source_security_group_id = aws_security_group.app.id
+  description              = "Spring backend from app security group (Caddy -> Spring)"
 }
 
 resource "aws_security_group_rule" "app_prometheus_alloy" {
