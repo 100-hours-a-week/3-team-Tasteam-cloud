@@ -50,7 +50,7 @@ resource "aws_security_group_rule" "app_prometheus_actuator" {
   protocol                 = "tcp"
   security_group_id        = aws_security_group.app.id
   source_security_group_id = aws_security_group.app.id
-  description              = "Spring backend from app security group (Caddy -> Spring)"
+  description              = "Spring backend from app security group (Caddy to Spring)"
 }
 
 resource "aws_security_group_rule" "app_prometheus_alloy" {
