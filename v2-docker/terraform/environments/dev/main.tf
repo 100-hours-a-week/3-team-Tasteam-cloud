@@ -265,9 +265,9 @@ resource "aws_s3_bucket_public_access_block" "uploads" {
   bucket = aws_s3_bucket.uploads.id
 
   block_public_acls       = true
-  block_public_policy     = true
+  block_public_policy     = false
   ignore_public_acls      = true
-  restrict_public_buckets = true
+  restrict_public_buckets = false
 }
 
 resource "aws_s3_bucket_cors_configuration" "uploads" {
@@ -275,7 +275,7 @@ resource "aws_s3_bucket_cors_configuration" "uploads" {
 
   cors_rule {
     allowed_headers = ["*"]
-    allowed_methods = ["PUT", "POST"]
+    allowed_methods = ["GET", "PUT", "POST"]
     allowed_origins = ["*"]
     expose_headers  = ["ETag"]
     max_age_seconds = 3000
@@ -292,6 +292,22 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
   }
 }
 
+# ── 퍼블릭 읽기 정책 ──
+data "aws_iam_policy_document" "uploads_public_read" {
+  statement {
+    sid = "AllowPublicRead"
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.uploads.arn}/*"]
+  }
+}
+
+# ── V1 마이그레이션 정책 (조건부) ──
 data "aws_iam_policy_document" "uploads_v1_migration" {
   count = length(var.v1_migration_principal_arns) > 0 ? 1 : 0
 
@@ -334,11 +350,19 @@ data "aws_iam_policy_document" "uploads_v1_migration" {
   }
 }
 
-resource "aws_s3_bucket_policy" "uploads_v1_migration" {
-  count = length(var.v1_migration_principal_arns) > 0 ? 1 : 0
+# ── 병합된 버킷 정책 ──
+data "aws_iam_policy_document" "uploads_combined" {
+  source_policy_documents = compact([
+    data.aws_iam_policy_document.uploads_public_read.json,
+    length(var.v1_migration_principal_arns) > 0 ? data.aws_iam_policy_document.uploads_v1_migration[0].json : "",
+  ])
+}
 
+resource "aws_s3_bucket_policy" "uploads" {
   bucket = aws_s3_bucket.uploads.id
-  policy = data.aws_iam_policy_document.uploads_v1_migration[0].json
+  policy = data.aws_iam_policy_document.uploads_combined.json
+
+  depends_on = [aws_s3_bucket_public_access_block.uploads]
 }
 
 # ──────────────────────────────────────────────
