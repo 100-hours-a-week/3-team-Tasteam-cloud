@@ -561,6 +561,13 @@ resource "aws_iam_user_policy_attachment" "backend_readonly_access" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
+resource "aws_iam_user_policy_attachment" "backend_change_password" {
+  for_each = local.backend_readonly_paramstore_users
+
+  user       = aws_iam_user.backend_readonly_paramstore[each.key].name
+  policy_arn = "arn:aws:iam::aws:policy/IAMUserChangePassword"
+}
+
 resource "aws_iam_user_login_profile" "backend_console_login" {
   for_each = local.backend_readonly_paramstore_users
 
