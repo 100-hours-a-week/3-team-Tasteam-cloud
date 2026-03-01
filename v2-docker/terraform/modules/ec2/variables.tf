@@ -58,6 +58,12 @@ variable "root_volume_size" {
   default     = 20
 }
 
+variable "root_delete_on_termination" {
+  description = "루트 볼륨을 인스턴스 종료 시 삭제할지 여부. false면 인스턴스 삭제돼도 루트 볼륨 보존"
+  type        = bool
+  default     = true
+}
+
 variable "associate_public_ip_address" {
   description = "Whether to assign a public IP"
   type        = bool

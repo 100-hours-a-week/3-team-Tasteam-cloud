@@ -256,15 +256,45 @@ module "ec2_caddy" {
 module "ec2_monitoring" {
   source = "../../modules/ec2"
 
-  environment          = var.environment
-  purpose              = "monitoring"
-  instance_type        = "t3.medium"
-  ami_id               = "ami-00b6cd96f80a61923"
-  subnet_id            = module.vpc.private_subnet_ids[0]
-  security_group_ids   = [module.security.monitoring_sg_id]
-  manage_key_pair      = true
-  iam_instance_profile = aws_iam_instance_profile.monitoring.name
-  private_ip           = "10.10.131.197"
+  environment                = var.environment
+  purpose                    = "monitoring"
+  instance_type              = "t3.medium"
+  ami_id                     = "ami-00b6cd96f80a61923"
+  subnet_id                  = module.vpc.private_subnet_ids[0]
+  security_group_ids         = [module.security.monitoring_sg_id]
+  manage_key_pair            = true
+  iam_instance_profile       = aws_iam_instance_profile.monitoring.name
+  private_ip                 = "10.10.131.197"
+  root_delete_on_termination = false
+}
+
+# ──────────────────────────────────────────────
+# EBS — Monitoring 데이터 볼륨
+# Prometheus, Loki, Grafana 데이터를 별도 볼륨에 저장
+# 인스턴스가 삭제/교체되어도 데이터는 절대 소실되지 않음
+# ──────────────────────────────────────────────
+
+resource "aws_ebs_volume" "monitoring_data" {
+  availability_zone = "ap-northeast-2a"
+  size              = 20
+  type              = "gp3"
+  encrypted         = true
+
+  tags = {
+    Name    = "${var.environment}-ebs-monitoring-data"
+    Purpose = "monitoring-data"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_volume_attachment" "monitoring_data" {
+  device_name  = "/dev/xvdf"
+  volume_id    = aws_ebs_volume.monitoring_data.id
+  instance_id  = module.ec2_monitoring.instance_id
+  force_detach = true
 }
 
 # ──────────────────────────────────────────────
