@@ -53,7 +53,7 @@ module "ec2_caddy" {
   environment                 = var.environment
   purpose                     = "caddy"
   instance_type               = "t3.micro"
-  ami_id                      = data.aws_ami.docker_base.id
+  ami_id                      = "ami-095af0e22a72b3a8b"
   subnet_id                   = module.vpc.public_subnet_ids[0]
   security_group_ids          = [module.security.app_sg_id]
   associate_public_ip_address = true
@@ -210,7 +210,7 @@ module "ec2_spring" {
   environment                 = var.environment
   purpose                     = "spring"
   instance_type               = "t3.small"
-  ami_id                      = "ami-00b6cd96f80a61923"
+  ami_id                      = "ami-052c6c25606d5fa08"
   subnet_id                   = module.vpc.private_subnet_ids[0]
   security_group_ids          = [aws_security_group.spring.id]
   associate_public_ip_address = false
@@ -441,6 +441,14 @@ resource "aws_iam_role_policy" "dev_backend_ec2" {
         Effect = "Allow"
         Action = [
           "kms:Decrypt"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ses:SendEmail",
+          "ses:SendRawEmail"
         ]
         Resource = "*"
       }

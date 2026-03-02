@@ -361,7 +361,7 @@ module "ec2_caddy" {
   environment                 = var.environment
   purpose                     = "caddy"
   instance_type               = "t3.micro"
-  ami_id                      = data.aws_ami.docker_base.id
+  ami_id                      = "ami-0c7b272da21b3027a"
   subnet_id                   = module.vpc.public_subnet_ids[0]
   security_group_ids          = [module.security.app_sg_id, aws_security_group.caddy_jump_source.id]
   associate_public_ip_address = true
@@ -378,7 +378,7 @@ module "asg_spring" {
   environment        = var.environment
   purpose            = "spring"
   instance_type      = "t3.small"
-  ami_id             = "ami-0d7b2faa7f90b6334"
+  ami_id             = "ami-0882e108662c210da"
   subnet_ids         = [module.vpc.private_subnet_ids[0]]
   security_group_ids = [module.security.app_sg_id, aws_security_group.spring_redis_source.id]
   aws_region         = var.aws_region

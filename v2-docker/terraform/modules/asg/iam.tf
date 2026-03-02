@@ -142,3 +142,24 @@ resource "aws_iam_role_policy" "kms" {
     }]
   })
 }
+
+# ──────────────────────────────────────────────
+# SES — 이메일 발송
+# ──────────────────────────────────────────────
+
+resource "aws_iam_role_policy" "ses" {
+  name = "ses-send-email"
+  role = aws_iam_role.this.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "ses:SendEmail",
+        "ses:SendRawEmail"
+      ]
+      Resource = "*"
+    }]
+  })
+}

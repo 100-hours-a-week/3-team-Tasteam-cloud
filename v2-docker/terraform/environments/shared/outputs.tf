@@ -77,3 +77,17 @@ output "ecr_repository_backend_url" {
   description = "Backend ECR repository URL"
   value       = aws_ecr_repository.backend.repository_url
 }
+
+# ──────────────────────────────────────────────
+# SES
+# ──────────────────────────────────────────────
+
+output "ses_domain_identity" {
+  description = "SES verified domain"
+  value       = aws_ses_domain_identity.tasteam.domain
+}
+
+output "ses_dkim_tokens" {
+  description = "SES DKIM tokens — 가비아 DNS에 CNAME 등록 필요: {token}._domainkey.tasteam.kr → {token}.dkim.amazonses.com"
+  value       = aws_ses_domain_dkim.tasteam.dkim_tokens
+}

@@ -712,3 +712,15 @@ resource "aws_ssm_parameter" "monitoring_postgres_dsn" {
     ignore_changes = [value]
   }
 }
+
+# ──────────────────────────────────────────────
+# SES — 이메일 발송 (그룹 가입 인증)
+# ──────────────────────────────────────────────
+
+resource "aws_ses_domain_identity" "tasteam" {
+  domain = "tasteam.kr"
+}
+
+resource "aws_ses_domain_dkim" "tasteam" {
+  domain = aws_ses_domain_identity.tasteam.domain
+}
