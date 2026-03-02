@@ -365,6 +365,7 @@ module "ec2_caddy" {
   subnet_id                   = module.vpc.public_subnet_ids[0]
   security_group_ids          = [module.security.app_sg_id, aws_security_group.caddy_jump_source.id]
   associate_public_ip_address = true
+  assign_eip                  = true
   manage_key_pair             = true
 }
 

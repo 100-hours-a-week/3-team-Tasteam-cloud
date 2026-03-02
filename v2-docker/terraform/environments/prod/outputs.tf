@@ -29,7 +29,7 @@ output "ec2_caddy_private_key_path" {
 }
 
 output "ec2_caddy_public_ip" {
-  description = "Prod caddy EC2 public IP (Redis SSH 점프호스트)"
+  description = "Prod caddy EC2 public IP (Elastic IP, Redis SSH 점프호스트)"
   value       = module.ec2_caddy.public_ip
 }
 

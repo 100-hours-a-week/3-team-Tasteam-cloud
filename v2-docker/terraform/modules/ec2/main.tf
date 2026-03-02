@@ -31,3 +31,19 @@ resource "aws_instance" "this" {
     Purpose = var.purpose
   }
 }
+
+resource "aws_eip" "this" {
+  count  = var.assign_eip ? 1 : 0
+  domain = "vpc"
+
+  tags = {
+    Name    = "${var.environment}-eip-${var.purpose}"
+    Purpose = var.purpose
+  }
+}
+
+resource "aws_eip_association" "this" {
+  count         = var.assign_eip ? 1 : 0
+  allocation_id = aws_eip.this[0].id
+  instance_id   = aws_instance.this.id
+}

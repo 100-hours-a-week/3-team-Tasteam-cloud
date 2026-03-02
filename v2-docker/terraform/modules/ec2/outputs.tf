@@ -10,7 +10,12 @@ output "private_ip" {
 
 output "public_ip" {
   description = "Public IP address (null if not associated)"
-  value       = aws_instance.this.public_ip
+  value       = var.assign_eip ? aws_eip.this[0].public_ip : aws_instance.this.public_ip
+}
+
+output "eip_allocation_id" {
+  description = "Elastic IP allocation ID (assign_eip=false 시 null)"
+  value       = var.assign_eip ? aws_eip.this[0].id : null
 }
 
 output "key_pair_name" {

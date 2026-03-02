@@ -19,7 +19,7 @@ output "ec2_caddy_id" {
 }
 
 output "ec2_caddy_public_ip" {
-  description = "Dev Caddy EC2 public IP"
+  description = "Dev Caddy EC2 public IP (Elastic IP)"
   value       = module.ec2_caddy.public_ip
 }
 
