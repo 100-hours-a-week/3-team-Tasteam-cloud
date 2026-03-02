@@ -113,3 +113,8 @@ output "rds_port" {
   description = "RDS port"
   value       = module.rds.port
 }
+
+output "rds_identifier" {
+  description = "RDS instance identifier"
+  value       = module.rds.identifier
+}

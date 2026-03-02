@@ -121,6 +121,32 @@ resource "aws_iam_role_policy" "monitoring_cloudwatch" {
   })
 }
 
+# ── CloudWatch Logs 읽기 (RDS 로그 수집용) ──
+resource "aws_iam_role_policy" "monitoring_cloudwatch_logs" {
+  name = "cloudwatch-logs-read"
+  role = aws_iam_role.monitoring.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["logs:DescribeLogGroups"]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:DescribeLogStreams",
+          "logs:GetLogEvents",
+          "logs:FilterLogEvents"
+        ]
+        Resource = "arn:aws:logs:ap-northeast-2:*:log-group:/aws/rds/*:*"
+      }
+    ]
+  })
+}
+
 # ── SSM 모니터링 파라미터 읽기 ──
 resource "aws_iam_role_policy" "monitoring_ssm" {
   name = "ssm-read"
@@ -701,6 +727,18 @@ resource "aws_ecr_repository" "backend" {
 # 모니터링 Alloy가 prod RDS에 접속하기 위한 DSN
 # Terraform이 RDS 주소 포함한 템플릿 생성, 사용자가 실제 자격증명으로 값 수정
 # ──────────────────────────────────────────────
+
+# Alloy CloudWatch Logs 수집 시 로그 그룹 경로 구성용
+resource "aws_ssm_parameter" "monitoring_rds_instance_identifier" {
+  name        = "/shared/tasteam/monitoring/RDS_INSTANCE_IDENTIFIER"
+  type        = "String"
+  value       = data.terraform_remote_state.prod.outputs.rds_identifier
+  description = "Alloy CloudWatch Logs 수집 대상 RDS 인스턴스 식별자"
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
 
 resource "aws_ssm_parameter" "monitoring_postgres_dsn" {
   name        = "/shared/tasteam/monitoring/POSTGRES_DSN"

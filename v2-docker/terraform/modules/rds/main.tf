@@ -13,6 +13,47 @@ resource "aws_db_parameter_group" "main" {
     apply_method = "pending-reboot"
   }
 
+  # ── 로깅 설정 ──
+  # - 전체 쿼리 로깅 OFF, 슬로우 쿼리만 기록
+  parameter {
+    name  = "log_statement"
+    value = "none"
+  }
+
+  # - N ms 이상 슬로우 쿼리 기록 (-1: 비활성화)
+  parameter {
+    name  = "log_min_duration_statement"
+    value = var.log_min_duration_statement
+  }
+
+  parameter {
+    name  = "log_connections"
+    value = "1"
+  }
+
+  parameter {
+    name  = "log_disconnections"
+    value = "1"
+  }
+
+  # - 데드락 감지 대기 이후 lock wait 기록
+  parameter {
+    name  = "log_lock_waits"
+    value = "1"
+  }
+
+  # - 모든 임시 파일 사용 기록 (0 = 전부)
+  parameter {
+    name  = "log_temp_files"
+    value = "0"
+  }
+
+  # - 250ms 이상 autovacuum 기록
+  parameter {
+    name  = "log_autovacuum_min_duration"
+    value = "250"
+  }
+
   tags = {
     Name = "${var.environment}-db-params-main"
   }
@@ -67,6 +108,9 @@ resource "aws_db_instance" "main" {
 
   skip_final_snapshot       = var.skip_final_snapshot
   final_snapshot_identifier = var.skip_final_snapshot ? null : "${var.environment}-tasteam-main-final"
+
+  # CloudWatch Logs export (postgresql 로그)
+  enabled_cloudwatch_logs_exports = var.enable_log_exports ? ["postgresql"] : []
 
   tags = {
     Name = "${var.environment}-rds-main"

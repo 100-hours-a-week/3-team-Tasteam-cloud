@@ -53,3 +53,15 @@ variable "skip_final_snapshot" {
   type        = bool
   default     = false
 }
+
+variable "log_min_duration_statement" {
+  description = "슬로우 쿼리 로깅 임계값 (ms). -1이면 비활성화"
+  type        = number
+  default     = 1000
+}
+
+variable "enable_log_exports" {
+  description = "CloudWatch Logs export 활성화 여부"
+  type        = bool
+  default     = true
+}
