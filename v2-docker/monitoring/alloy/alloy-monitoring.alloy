@@ -32,6 +32,40 @@ loki.write "default" {
   }
 }
 
+// ── RDS PostgreSQL 로그: CloudWatch Logs → OTel → Loki ──
+// RDS_INSTANCE_IDENTIFIER: deploy.sh가 SSM에서 fetch → .env에 주입
+// otelcol.receiver.awscloudwatch → otelcol.exporter.loki → loki.process → loki.write
+
+otelcol.receiver.awscloudwatch "rds_logs" {
+  region = sys.env("AWS_REGION")
+
+  logs {
+    poll_interval          = "1m"
+    max_events_per_request = 1000
+
+    groups {
+      named {
+        group_name = "/aws/rds/instance/" + sys.env("RDS_INSTANCE_IDENTIFIER") + "/postgresql"
+      }
+    }
+  }
+
+  output {
+    logs = [otelcol.exporter.loki.rds_logs.input]
+  }
+}
+
+otelcol.exporter.loki "rds_logs" {
+  forward_to = [loki.process.rds_labels.receiver]
+}
+
+loki.process "rds_labels" {
+  stage.static_labels {
+    values = { job = "rds-logs" }
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
 // ── 호스트 메트릭: node_exporter ──
 
 prometheus.exporter.unix "node" {
@@ -107,7 +141,7 @@ prometheus.scrape "cadvisor" {
   scrape_interval = "30s"
 }
 
-// ── PostgreSQL 메트릭 (prod RDS) ──
+// ── PostgreSQL 메트릭 (Database) ──
 // POSTGRES_DSN: deploy.sh가 SSM에서 fetch → .env에 주입
 // 모니터링 서버에서 1회만 수집 (ASG 스케일아웃 시 중복 방지)
 
@@ -123,7 +157,7 @@ prometheus.relabel "postgres" {
   }
   rule {
     target_label = "instance"
-    replacement  = "prod-rds"
+    replacement  = sys.env("ENVIRONMENT") + "-rds"
   }
 }
 

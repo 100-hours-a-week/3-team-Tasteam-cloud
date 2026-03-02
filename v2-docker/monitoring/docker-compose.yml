@@ -52,9 +52,12 @@ services:
       - ROLE=monitoring
       - HOSTNAME=${HOSTNAME}
       - POSTGRES_DSN=${POSTGRES_DSN}
+      - AWS_REGION=${AWS_REGION:-ap-northeast-2}
+      - RDS_INSTANCE_IDENTIFIER=${RDS_INSTANCE_IDENTIFIER}
     command:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
+      - --stability.level=experimental
       - /etc/alloy/config.alloy
     depends_on:
       - prometheus
