@@ -1,0 +1,118 @@
+(app_site) {
+    encode gzip zstd
+
+    log {
+        format json
+    }
+
+    @api {
+        path /api/*
+        not client_ip 211.244.225.166
+    }
+
+    @swagger {
+        path /api/v1/swagger-ui/*
+        not client_ip 211.244.225.166
+    }
+
+    @admin {
+        path /admin*
+        not client_ip 211.244.225.166
+    }
+
+    rate_limit @api {
+        zone api_limit {
+            key {client_ip}
+            events 500
+            window 1s
+        }
+    }
+
+    rate_limit @swagger {
+        zone swagger_limit {
+            key {client_ip}
+            events 20
+            window 1m
+        }
+    }
+
+    rate_limit @admin {
+        zone admin_limit {
+            key {client_ip}
+            events 50
+            window 1m
+        }
+    }
+
+    handle /api/v1/swagger-ui/* {
+        basic_auth {
+            admin {$SWAGGER_ADMIN_HASH}
+        }
+        reverse_proxy {$SPRING_UPSTREAM} {
+            transport http {
+                max_conns_per_host 200
+            }
+        }
+    }
+
+    handle /ws* {
+        reverse_proxy {$SPRING_UPSTREAM} {
+            transport http {
+                max_conns_per_host 1000
+            }
+        }
+    }
+
+    handle /api/* {
+        reverse_proxy {$SPRING_UPSTREAM} {
+            transport http {
+                max_conns_per_host 200
+            }
+        }
+    }
+
+    handle /admin* {
+        reverse_proxy {$SPRING_UPSTREAM} {
+            transport http {
+                max_conns_per_host 200
+            }
+        }
+    }
+
+    handle {
+        root * {$STATIC_ROOT:/var/www/html/current}
+
+        @index path /index.html
+        header @index Cache-Control "no-cache, no-store, must-revalidate"
+
+        @assets path *.js *.css *.png *.jpg *.jpeg *.gif *.svg *.ico *.woff *.woff2
+        header @assets Cache-Control "public, max-age=31536000, immutable"
+
+        try_files {path} /index.html
+        file_server
+    }
+}
+
+(grafana_site) {
+    encode gzip zstd
+
+    log {
+        format json
+    }
+
+    reverse_proxy {$GRAFANA_UPSTREAM:localhost:3000}
+}
+
+(prom_site) {
+    encode gzip zstd
+
+    basic_auth {
+        admin {$PROM_ADMIN_HASH}
+    }
+
+    reverse_proxy {$PROM_UPSTREAM:localhost:9090}
+}
+
+:80, :443 {
+    respond "forbidden host" 403
+}

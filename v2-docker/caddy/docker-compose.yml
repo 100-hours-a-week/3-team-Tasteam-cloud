@@ -1,18 +1,28 @@
 # Caddy EC2 docker-compose
-# 배포: 수동 scp → docker compose up -d
-# 환경 변수: .env 파일 필요 (LOKI_HOST, PROMETHEUS_HOST, ENVIRONMENT, HOSTNAME)
-# 사전 조건: Caddyfile 상단에 "admin 0.0.0.0:2019" 추가 필요 (Alloy가 메트릭 수집)
+# 배포: 수동 scp 후 이 디렉토리에서 `cp .env.example .env` → 값 수정 → `docker compose up -d --build`
+# Compose는 .env를 자동 로드하고, Caddy는 sites/${ENVIRONMENT}.caddy 를 import한다.
 
 services:
   caddy:
     build: .
     container_name: caddy
     restart: unless-stopped
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-dev}
+      - CADDY_ADMIN=${CADDY_ADMIN:-0.0.0.0:2019}
+      - SPRING_UPSTREAM=${SPRING_UPSTREAM}
+      - GRAFANA_UPSTREAM=${GRAFANA_UPSTREAM:-localhost:3000}
+      - PROM_UPSTREAM=${PROM_UPSTREAM:-localhost:9090}
+      - STATIC_ROOT=${STATIC_ROOT:-/var/www/html/current}
+      - SWAGGER_ADMIN_HASH=${SWAGGER_ADMIN_HASH}
+      - PROM_ADMIN_HASH=${PROM_ADMIN_HASH}
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./snippets:/etc/caddy/snippets:ro
+      - ./sites:/etc/caddy/sites:ro
       - /opt/caddy/www/html:/var/www/html:ro
       - caddy_data:/data
       - caddy_config:/config
@@ -34,7 +44,7 @@ services:
     environment:
       - LOKI_HOST=${LOKI_HOST}
       - PROMETHEUS_HOST=${PROMETHEUS_HOST}          # Caddy 메트릭 remote_write용
-      - ENVIRONMENT=${ENVIRONMENT:-prod}
+      - ENVIRONMENT=${ENVIRONMENT:-dev}
       - ROLE=caddy
       - HOSTNAME=${HOSTNAME}
     command:

@@ -1,0 +1,11 @@
+dev.tasteam.kr {
+    import app_site
+}
+
+grafana-dev.tasteam.kr {
+    import grafana_site
+}
+
+prom-dev.tasteam.kr {
+    import prom_site
+}
