@@ -33,10 +33,10 @@ loki.write "default" {
 }
 
 // ── RDS PostgreSQL 로그: CloudWatch Logs → OTel → Loki ──
-// RDS_INSTANCE_IDENTIFIER: deploy.sh가 SSM에서 fetch → .env에 주입
+// prod/stg 각각 수집, environment 레이블로 구분
 // otelcol.receiver.awscloudwatch → otelcol.exporter.loki → loki.process → loki.write
 
-otelcol.receiver.awscloudwatch "rds_logs" {
+otelcol.receiver.awscloudwatch "rds_logs_prod" {
   region = sys.env("AWS_REGION")
 
   logs {
@@ -45,23 +45,53 @@ otelcol.receiver.awscloudwatch "rds_logs" {
 
     groups {
       named {
-        group_name = "/aws/rds/instance/" + sys.env("RDS_INSTANCE_IDENTIFIER") + "/postgresql"
+        group_name = "/aws/rds/instance/" + sys.env("RDS_INSTANCE_IDENTIFIER_PROD") + "/postgresql"
       }
     }
   }
 
   output {
-    logs = [otelcol.exporter.loki.rds_logs.input]
+    logs = [otelcol.exporter.loki.rds_logs_prod.input]
   }
 }
 
-otelcol.exporter.loki "rds_logs" {
-  forward_to = [loki.process.rds_labels.receiver]
+otelcol.exporter.loki "rds_logs_prod" {
+  forward_to = [loki.process.rds_labels_prod.receiver]
 }
 
-loki.process "rds_labels" {
+loki.process "rds_labels_prod" {
   stage.static_labels {
-    values = { job = "rds-logs" }
+    values = { job = "rds-logs", environment = "prod" }
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+otelcol.receiver.awscloudwatch "rds_logs_stg" {
+  region = sys.env("AWS_REGION")
+
+  logs {
+    poll_interval          = "1m"
+    max_events_per_request = 1000
+
+    groups {
+      named {
+        group_name = "/aws/rds/instance/" + sys.env("RDS_INSTANCE_IDENTIFIER_STG") + "/postgresql"
+      }
+    }
+  }
+
+  output {
+    logs = [otelcol.exporter.loki.rds_logs_stg.input]
+  }
+}
+
+otelcol.exporter.loki "rds_logs_stg" {
+  forward_to = [loki.process.rds_labels_stg.receiver]
+}
+
+loki.process "rds_labels_stg" {
+  stage.static_labels {
+    values = { job = "rds-logs", environment = "stg" }
   }
   forward_to = [loki.write.default.receiver]
 }
@@ -141,15 +171,15 @@ prometheus.scrape "cadvisor" {
   scrape_interval = "30s"
 }
 
-// ── PostgreSQL 메트릭 (Database) ──
-// POSTGRES_DSN: deploy.sh가 SSM에서 fetch → .env에 주입
+// ── PostgreSQL 메트릭 (prod / stg RDS) ──
+// POSTGRES_DSN_PROD, POSTGRES_DSN_STG: deploy.sh가 SSM에서 fetch → .env에 주입
 // 모니터링 서버에서 1회만 수집 (ASG 스케일아웃 시 중복 방지)
 
-prometheus.exporter.postgres "rds" {
-  data_source_names = [sys.env("POSTGRES_DSN")]
+prometheus.exporter.postgres "rds_prod" {
+  data_source_names = [sys.env("POSTGRES_DSN_PROD")]
 }
 
-prometheus.relabel "postgres" {
+prometheus.relabel "postgres_prod" {
   forward_to = [prometheus.remote_write.default.receiver]
   rule {
     target_label = "job"
@@ -157,13 +187,35 @@ prometheus.relabel "postgres" {
   }
   rule {
     target_label = "instance"
-    replacement  = sys.env("ENVIRONMENT") + "-rds"
+    replacement  = "prod-rds"
   }
 }
 
-prometheus.scrape "postgres" {
-  targets         = prometheus.exporter.postgres.rds.targets
-  forward_to      = [prometheus.relabel.postgres.receiver]
+prometheus.scrape "postgres_prod" {
+  targets         = prometheus.exporter.postgres.rds_prod.targets
+  forward_to      = [prometheus.relabel.postgres_prod.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.exporter.postgres "rds_stg" {
+  data_source_names = [sys.env("POSTGRES_DSN_STG")]
+}
+
+prometheus.relabel "postgres_stg" {
+  forward_to = [prometheus.remote_write.default.receiver]
+  rule {
+    target_label = "job"
+    replacement  = "postgres"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = "stg-rds"
+  }
+}
+
+prometheus.scrape "postgres_stg" {
+  targets         = prometheus.exporter.postgres.rds_stg.targets
+  forward_to      = [prometheus.relabel.postgres_stg.receiver]
   scrape_interval = "30s"
 }
 
