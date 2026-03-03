@@ -20,6 +20,8 @@ if command -v aws >/dev/null 2>&1; then
     --output text 2>/dev/null | while IFS=$'\t' read -r name val; do
       [ -z "${name}" ] && continue
       key="${name##*/}"
+      # docker compose는 .env의 $를 변수 참조로 해석 → $$로 이스케이프
+      val="${val//\$/\$\$}"
       if [ -f "${ENV_FILE}" ] && grep -q "^${key}=" "${ENV_FILE}" 2>/dev/null; then
         sed -i "s|^${key}=.*|${key}=${val}|" "${ENV_FILE}"
       else
