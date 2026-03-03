@@ -158,7 +158,10 @@ resource "aws_iam_role_policy" "monitoring_ssm" {
       {
         Effect   = "Allow"
         Action   = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
-        Resource = "arn:aws:ssm:*:*:parameter/*/tasteam/monitoring/*"
+        Resource = [
+          "arn:aws:ssm:*:*:parameter/*/tasteam/monitoring",
+          "arn:aws:ssm:*:*:parameter/*/tasteam/monitoring/*"
+        ]
       },
       {
         Effect   = "Allow"
@@ -728,23 +731,56 @@ resource "aws_ecr_repository" "backend" {
 # Terraform이 RDS 주소 포함한 템플릿 생성, 사용자가 실제 자격증명으로 값 수정
 # ──────────────────────────────────────────────
 
+# 기존 단일 SSM → prod/stg 분리
+moved {
+  from = aws_ssm_parameter.monitoring_rds_instance_identifier
+  to   = aws_ssm_parameter.monitoring_rds_instance_identifier_prod
+}
+
 # Alloy CloudWatch Logs 수집 시 로그 그룹 경로 구성용
-resource "aws_ssm_parameter" "monitoring_rds_instance_identifier" {
-  name        = "/shared/tasteam/monitoring/RDS_INSTANCE_IDENTIFIER"
+resource "aws_ssm_parameter" "monitoring_rds_instance_identifier_prod" {
+  name        = "/shared/tasteam/monitoring/RDS_INSTANCE_IDENTIFIER_PROD"
   type        = "String"
   value       = data.terraform_remote_state.prod.outputs.rds_identifier
-  description = "Alloy CloudWatch Logs 수집 대상 RDS 인스턴스 식별자"
+  description = "Alloy CloudWatch Logs 수집 대상 prod RDS 인스턴스 식별자"
 
   lifecycle {
     ignore_changes = [value]
   }
 }
 
-resource "aws_ssm_parameter" "monitoring_postgres_dsn" {
-  name        = "/shared/tasteam/monitoring/POSTGRES_DSN"
+resource "aws_ssm_parameter" "monitoring_rds_instance_identifier_stg" {
+  name        = "/shared/tasteam/monitoring/RDS_INSTANCE_IDENTIFIER_STG"
+  type        = "String"
+  value       = data.terraform_remote_state.stg.outputs.rds_identifier
+  description = "Alloy CloudWatch Logs 수집 대상 stg RDS 인스턴스 식별자"
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+moved {
+  from = aws_ssm_parameter.monitoring_postgres_dsn
+  to   = aws_ssm_parameter.monitoring_postgres_dsn_prod
+}
+
+resource "aws_ssm_parameter" "monitoring_postgres_dsn_prod" {
+  name        = "/shared/tasteam/monitoring/POSTGRES_DSN_PROD"
   type        = "SecureString"
   value       = "postgresql://CHANGE_ME:CHANGE_ME@${data.terraform_remote_state.prod.outputs.rds_address}:${data.terraform_remote_state.prod.outputs.rds_port}/tasteam?sslmode=require"
   description = "Alloy postgres exporter DSN for prod RDS"
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "aws_ssm_parameter" "monitoring_postgres_dsn_stg" {
+  name        = "/shared/tasteam/monitoring/POSTGRES_DSN_STG"
+  type        = "SecureString"
+  value       = "postgresql://CHANGE_ME:CHANGE_ME@${data.terraform_remote_state.stg.outputs.rds_address}:${data.terraform_remote_state.stg.outputs.rds_port}/tasteam?sslmode=require"
+  description = "Alloy postgres exporter DSN for stg RDS"
 
   lifecycle {
     ignore_changes = [value]
