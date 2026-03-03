@@ -385,7 +385,7 @@ module "asg_spring" {
   aws_region         = var.aws_region
 
   min_size     = 1
-  desired_size = 1
+  desired_size = 2
   max_size     = 2
 
   app_port = 8080
@@ -715,5 +715,16 @@ resource "aws_ssm_parameter" "db_url" {
 
   tags = {
     Name = "${var.environment}-ssm-backend-DB_URL"
+  }
+}
+
+resource "aws_ssm_parameter" "cloud_map_service_id" {
+  name        = "/${var.environment}/tasteam/backend/CLOUD_MAP_SERVICE_ID"
+  type        = "String"
+  value       = module.cloud_map.service_id
+  description = "Cloud Map service ID for Spring service discovery custom health"
+
+  tags = {
+    Name = "${var.environment}-ssm-backend-CLOUD_MAP_SERVICE_ID"
   }
 }

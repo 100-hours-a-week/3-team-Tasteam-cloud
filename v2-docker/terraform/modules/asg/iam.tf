@@ -126,6 +126,27 @@ resource "aws_iam_role_policy" "codedeploy_commands_secure" {
 }
 
 # ──────────────────────────────────────────────
+# Cloud Map — custom health 상태 갱신
+# CodeDeploy ValidateService 성공 후 인스턴스가 자기 자신을 HEALTHY로 전환
+# ──────────────────────────────────────────────
+
+resource "aws_iam_role_policy" "cloud_map_health" {
+  name = "cloud-map-health"
+  role = aws_iam_role.this.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "servicediscovery:UpdateInstanceCustomHealthStatus"
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
+# ──────────────────────────────────────────────
 # KMS — SecureString 파라미터 복호화
 # ──────────────────────────────────────────────
 
