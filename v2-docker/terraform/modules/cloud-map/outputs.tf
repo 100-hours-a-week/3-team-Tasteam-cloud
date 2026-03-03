@@ -19,6 +19,6 @@ output "service_arn" {
 }
 
 output "dns_name" {
-  description = "Cloud Map 서비스 DNS 이름 (e.g. spring.internal.tasteam.local)"
-  value       = "${var.service_name}.internal.tasteam.local"
+  description = "Cloud Map 서비스 DNS 이름 (e.g. spring.internal.tasteam)"
+  value       = "${var.service_name}.internal.tasteam"
 }
