@@ -765,11 +765,14 @@ moved {
   to   = aws_ssm_parameter.monitoring_postgres_dsn_prod
 }
 
+# 값 수정 시 비밀번호의 특수문자를 URL 인코딩할 것
+# - % → %25, $ → %24, ! → %21, # → %23 등
+# - 예: p@ss%word → p%40ss%25word
 resource "aws_ssm_parameter" "monitoring_postgres_dsn_prod" {
   name        = "/shared/tasteam/monitoring/POSTGRES_DSN_PROD"
   type        = "SecureString"
   value       = "postgresql://CHANGE_ME:CHANGE_ME@${data.terraform_remote_state.prod.outputs.rds_address}:${data.terraform_remote_state.prod.outputs.rds_port}/tasteam?sslmode=require"
-  description = "Alloy postgres exporter DSN for prod RDS"
+  description = "Alloy postgres exporter DSN for prod RDS (비밀번호 특수문자는 URL 인코딩 필수)"
 
   lifecycle {
     ignore_changes = [value]
@@ -780,7 +783,7 @@ resource "aws_ssm_parameter" "monitoring_postgres_dsn_stg" {
   name        = "/shared/tasteam/monitoring/POSTGRES_DSN_STG"
   type        = "SecureString"
   value       = "postgresql://CHANGE_ME:CHANGE_ME@${data.terraform_remote_state.stg.outputs.rds_address}:${data.terraform_remote_state.stg.outputs.rds_port}/tasteam?sslmode=require"
-  description = "Alloy postgres exporter DSN for stg RDS"
+  description = "Alloy postgres exporter DSN for stg RDS (비밀번호 특수문자는 URL 인코딩 필수)"
 
   lifecycle {
     ignore_changes = [value]
