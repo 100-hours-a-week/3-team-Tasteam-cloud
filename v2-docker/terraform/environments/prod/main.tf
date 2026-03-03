@@ -385,7 +385,7 @@ module "asg_spring" {
   aws_region         = var.aws_region
 
   min_size     = 1
-  desired_size = 2
+  desired_size = 1
   max_size     = 2
 
   app_port = 8080
