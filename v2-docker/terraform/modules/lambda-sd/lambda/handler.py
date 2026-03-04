@@ -60,7 +60,9 @@ def _register(instance_id: str, service_id: str, app_port: str) -> None:
         Attributes={
             "AWS_INSTANCE_IPV4": private_ip,
             "AWS_INSTANCE_PORT": app_port,
-            "HEALTH_STATUS": "UNHEALTHY",  # 앱 기동 완료 후 CodeDeploy 훅에서 HEALTHY로 변경
+            # Cloud Map custom health의 초기 상태를 UNHEALTHY로 둔다.
+            # 앱 기동 완료 후 CodeDeploy ValidateService 훅이 HEALTHY로 전환한다.
+            "AWS_INIT_HEALTH_STATUS": "UNHEALTHY",
         },
     )
     logger.info("Registered %s (%s:%s) → UNHEALTHY", instance_id, private_ip, app_port)
