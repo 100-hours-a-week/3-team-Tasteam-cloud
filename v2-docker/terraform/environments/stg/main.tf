@@ -562,6 +562,7 @@ module "rds" {
 
   environment        = var.environment
   instance_class     = "db.t3.small"
+  allocated_storage  = 50
   db_name            = "tasteam"
   username           = var.db_username
   subnet_ids         = module.vpc.private_subnet_ids
