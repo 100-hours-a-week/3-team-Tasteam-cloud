@@ -6,7 +6,7 @@ export const options = {
     duration: '10s', // 연결성 확인을 위한 짧은 시간
 };
 
-const BASE_URL = 'https://tasteam.kr';
+const BASE_URL = __ENV.BASE_URL || 'https://dev.tasteam.kr';
 
 export default function () {
     // 공통 헤더 설정
