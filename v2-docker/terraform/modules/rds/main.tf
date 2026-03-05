@@ -92,8 +92,9 @@ resource "aws_db_instance" "main" {
   engine_version = var.engine_version
   instance_class = var.instance_class
 
-  allocated_storage = var.allocated_storage
-  storage_type      = "gp3"
+  allocated_storage     = var.allocated_storage
+  max_allocated_storage = var.max_allocated_storage # 스토리지 오토스케일링: 사용량 90% 도달 시 현재 크기의 20% 자동 확장 (최소 5GB)
+  storage_type          = "gp3"
 
   db_name  = var.db_name
   username = var.username

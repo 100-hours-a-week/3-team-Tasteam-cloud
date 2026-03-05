@@ -15,6 +15,12 @@ variable "allocated_storage" {
   default     = 20
 }
 
+variable "max_allocated_storage" {
+  description = "스토리지 오토스케일링 최대 크기 (GB). allocated_storage보다 크게 설정하면 오토스케일링 활성화. 사용량 90% 도달 시 자동 확장 트리거"
+  type        = number
+  default     = 100
+}
+
 variable "engine_version" {
   description = "PostgreSQL 엔진 버전"
   type        = string
