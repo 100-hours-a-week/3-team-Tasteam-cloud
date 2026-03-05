@@ -362,7 +362,7 @@ module "asg_spring" {
 
   min_size     = 1
   desired_size = 1
-  max_size     = 2
+  max_size     = 1
 
   app_port = 8080
 
