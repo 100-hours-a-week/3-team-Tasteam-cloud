@@ -616,3 +616,80 @@ resource "aws_ssm_parameter" "cloud_map_service_id" {
     Name = "${var.environment}-ssm-backend-CLOUD_MAP_SERVICE_ID"
   }
 }
+
+# ──────────────────────────────────────────────
+# Data Sources for V1 (Legacy)
+# ──────────────────────────────────────────────
+
+data "aws_caller_identity" "v1" {
+  provider = aws.v1
+}
+
+data "aws_vpc" "v1" {
+  provider = aws.v1
+  filter {
+    name   = "tag:Name"
+    values = ["prod-vpc"]
+  }
+}
+
+data "aws_route_table" "v1" {
+  provider = aws.v1
+  vpc_id   = data.aws_vpc.v1.id
+  filter {
+    name   = "association.main"
+    values = ["true"]
+  }
+}
+
+# ──────────────────────────────────────────────
+# VPC Peering with V1 (Legacy)
+# ──────────────────────────────────────────────
+
+# 1. Peering Request (From V2 stg)
+resource "aws_vpc_peering_connection" "v1_peering" {
+  vpc_id        = module.vpc.vpc_id
+  peer_vpc_id   = data.aws_vpc.v1.id
+  peer_owner_id = data.aws_caller_identity.v1.account_id
+  peer_region   = var.aws_region
+  auto_accept   = false
+
+  tags = {
+    Name = "stg-pcx-v1"
+    Side = "Requester"
+  }
+}
+
+# 2. Peering Accepter (In V1)
+resource "aws_vpc_peering_connection_accepter" "v1_peering_accepter" {
+  provider                  = aws.v1
+  vpc_peering_connection_id = aws_vpc_peering_connection.v1_peering.id
+  auto_accept               = true
+
+  tags = {
+    Name = "stg-pcx-v1"
+    Side = "Accepter"
+  }
+}
+
+# 3. Routes: V2 stg -> V1 (Private)
+resource "aws_route" "to_v1_private" {
+  route_table_id            = module.vpc.private_route_table_id
+  destination_cidr_block    = data.aws_vpc.v1.cidr_block
+  vpc_peering_connection_id = aws_vpc_peering_connection.v1_peering.id
+}
+
+# 4. Routes: V2 stg -> V1 (Public)
+resource "aws_route" "to_v1_public" {
+  route_table_id            = module.vpc.public_route_table_id
+  destination_cidr_block    = data.aws_vpc.v1.cidr_block
+  vpc_peering_connection_id = aws_vpc_peering_connection.v1_peering.id
+}
+
+# 5. Routes: V1 -> V2 stg (Main Route Table)
+resource "aws_route" "v1_to_stg" {
+  provider                  = aws.v1
+  route_table_id            = data.aws_route_table.v1.id
+  destination_cidr_block    = module.vpc.vpc_cidr_block
+  vpc_peering_connection_id = aws_vpc_peering_connection.v1_peering.id
+}
