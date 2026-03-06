@@ -93,26 +93,6 @@
     }
 }
 
-(grafana_site) {
-    encode gzip zstd
-
-    log {
-        format json
-    }
-
-    reverse_proxy {$GRAFANA_UPSTREAM:localhost:3000}
-}
-
-(prom_site) {
-    encode gzip zstd
-
-    basic_auth {
-        admin {$PROM_ADMIN_HASH}
-    }
-
-    reverse_proxy {$PROM_UPSTREAM:localhost:9090}
-}
-
 :80, :443 {
     respond "forbidden host" 403
 }

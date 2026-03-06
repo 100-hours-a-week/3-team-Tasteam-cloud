@@ -1,11 +1,3 @@
 tasteam.kr {
     import app_site
 }
-
-grafana.tasteam.kr {
-    import grafana_site
-}
-
-prom.tasteam.kr {
-    import prom_site
-}

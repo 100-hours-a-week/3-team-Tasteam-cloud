@@ -11,11 +11,8 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-dev}
       - CADDY_ADMIN=${CADDY_ADMIN:-0.0.0.0:2019}
       - SPRING_UPSTREAM=${SPRING_UPSTREAM}
-      - GRAFANA_UPSTREAM=${GRAFANA_UPSTREAM:-localhost:3000}
-      - PROM_UPSTREAM=${PROM_UPSTREAM:-localhost:9090}
       - STATIC_ROOT=${STATIC_ROOT:-/var/www/html/current}
       - SWAGGER_ADMIN_HASH=${SWAGGER_ADMIN_HASH}
-      - PROM_ADMIN_HASH=${PROM_ADMIN_HASH}
     ports:
       - "80:80"
       - "443:443"
