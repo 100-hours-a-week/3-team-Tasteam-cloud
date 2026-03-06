@@ -58,6 +58,7 @@ module "ec2_caddy" {
   security_group_ids          = [module.security.app_sg_id]
   associate_public_ip_address = true
   assign_eip                  = true
+  iam_instance_profile        = aws_iam_instance_profile.dev_ec2_common.name
 }
 
 # ──────────────────────────────────────────────
@@ -293,6 +294,50 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
   }
 }
 
+# ──────────────────────────────────────────────
+# S3 — Application Analytics Bucket (Dev)
+# ──────────────────────────────────────────────
+
+resource "aws_s3_bucket" "analytics" {
+  bucket = "tasteam-${var.environment}-analytics"
+
+  tags = {
+    Name    = "${var.environment}-analytics"
+    Purpose = "application-analytics"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "analytics" {
+  bucket = aws_s3_bucket.analytics.id
+
+  block_public_acls       = true
+  block_public_policy     = false
+  ignore_public_acls      = true
+  restrict_public_buckets = false
+}
+
+resource "aws_s3_bucket_cors_configuration" "analytics" {
+  bucket = aws_s3_bucket.analytics.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["GET", "PUT", "POST"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "analytics" {
+  bucket = aws_s3_bucket.analytics.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
 # ── 퍼블릭 읽기 정책 ──
 data "aws_iam_policy_document" "uploads_public_read" {
   statement {
@@ -480,6 +525,76 @@ resource "aws_iam_role_policy" "dev_backend_ec2_uploads_s3" {
       }
     ]
   })
+}
+
+resource "aws_iam_role_policy" "dev_backend_ec2_analytics_s3" {
+  name = "${var.environment}-analytics-s3-policy"
+  role = aws_iam_role.dev_backend_ec2.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "s3:ListBucket"
+        Resource = aws_s3_bucket.analytics.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "${aws_s3_bucket.analytics.arn}/*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "dev_ec2_common" {
+  name = "${var.environment}-ec2-common-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "dev_ec2_common_analytics_s3" {
+  name = "${var.environment}-ec2-analytics-s3-policy"
+  role = aws_iam_role.dev_ec2_common.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "s3:ListBucket"
+        Resource = aws_s3_bucket.analytics.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "${aws_s3_bucket.analytics.arn}/*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_instance_profile" "dev_ec2_common" {
+  name = "${var.environment}-ec2-common-instance-profile"
+  role = aws_iam_role.dev_ec2_common.name
 }
 
 resource "aws_iam_instance_profile" "dev_backend_ec2" {

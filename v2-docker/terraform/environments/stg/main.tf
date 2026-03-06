@@ -278,6 +278,50 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
   }
 }
 
+# ──────────────────────────────────────────────
+# S3 — Application Analytics Bucket
+# ──────────────────────────────────────────────
+
+resource "aws_s3_bucket" "analytics" {
+  bucket = "tasteam-${var.environment}-analytics"
+
+  tags = {
+    Name    = "${var.environment}-analytics"
+    Purpose = "application-analytics"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "analytics" {
+  bucket = aws_s3_bucket.analytics.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_cors_configuration" "analytics" {
+  bucket = aws_s3_bucket.analytics.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["PUT", "POST"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "analytics" {
+  bucket = aws_s3_bucket.analytics.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
 data "aws_iam_policy_document" "uploads_v1_migration" {
   count = length(var.v1_migration_principal_arns) > 0 ? 1 : 0
 
@@ -343,6 +387,7 @@ module "ec2_caddy" {
   associate_public_ip_address = true
   assign_eip                  = true
   manage_key_pair             = true
+  iam_instance_profile        = aws_iam_instance_profile.ec2_common.name
 }
 
 # ──────────────────────────────────────────────
@@ -435,6 +480,7 @@ module "ec2_redis" {
   security_group_ids          = [aws_security_group.redis_private.id]
   associate_public_ip_address = false
   manage_key_pair             = true
+  iam_instance_profile        = aws_iam_instance_profile.ec2_common.name
 }
 
 # ──────────────────────────────────────────────
@@ -454,10 +500,60 @@ module "ec2_redis_clone" {
   security_group_ids          = [aws_security_group.redis_private.id]
   associate_public_ip_address = false
   manage_key_pair             = true
+  iam_instance_profile        = aws_iam_instance_profile.ec2_common.name
 }
 
 # ──────────────────────────────────────────────
-# IAM — Backend ASG Upload S3 Access
+# IAM — Common EC2 Analytics S3 Access
+# ──────────────────────────────────────────────
+
+resource "aws_iam_role" "ec2_common" {
+  name = "${var.environment}-ec2-common-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "ec2_common_analytics_s3" {
+  name = "${var.environment}-ec2-analytics-s3-policy"
+  role = aws_iam_role.ec2_common.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = aws_s3_bucket.analytics.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject",
+        ]
+        Resource = "${aws_s3_bucket.analytics.arn}/*"
+      },
+    ]
+  })
+}
+
+resource "aws_iam_instance_profile" "ec2_common" {
+  name = "${var.environment}-ec2-common-instance-profile"
+  role = aws_iam_role.ec2_common.name
+}
+
+# ──────────────────────────────────────────────
+# IAM — Backend ASG S3 Access
 # ──────────────────────────────────────────────
 
 resource "aws_iam_role_policy" "asg_spring_uploads_s3" {
@@ -480,6 +576,31 @@ resource "aws_iam_role_policy" "asg_spring_uploads_s3" {
           "s3:DeleteObject",
         ]
         Resource = "${aws_s3_bucket.uploads.arn}/*"
+      },
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "asg_spring_analytics_s3" {
+  name = "analytics-s3-access"
+  role = module.asg_spring.iam_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = aws_s3_bucket.analytics.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject",
+        ]
+        Resource = "${aws_s3_bucket.analytics.arn}/*"
       },
     ]
   })
