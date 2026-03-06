@@ -34,15 +34,27 @@ resource "aws_iam_role_policy" "cloud_map" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "servicediscovery:RegisterInstance",
-        "servicediscovery:DeregisterInstance",
-        "servicediscovery:UpdateInstanceCustomHealthStatus",
-      ]
-      Resource = "*"
-    }]
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "servicediscovery:RegisterInstance",
+          "servicediscovery:DeregisterInstance",
+          "servicediscovery:UpdateInstanceCustomHealthStatus",
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "route53:CreateHealthCheck",
+          "route53:GetHealthCheck",
+          "route53:UpdateHealthCheck",
+          "route53:DeleteHealthCheck",
+        ]
+        Resource = "*"
+      },
+    ]
   })
 }
 

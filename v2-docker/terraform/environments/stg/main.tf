@@ -360,9 +360,9 @@ module "asg_spring" {
   security_group_ids = [module.security.app_sg_id, aws_security_group.spring_redis_source.id]
   aws_region         = var.aws_region
 
-  min_size     = 1
-  desired_size = 1
-  max_size     = 1
+  min_size     = 2
+  desired_size = 2
+  max_size     = 2
 
   app_port = 8080
 
@@ -431,6 +431,25 @@ module "ec2_redis" {
   purpose                     = "redis"
   instance_type               = "t3.small"
   ami_id                      = data.aws_ami.docker_base.id
+  subnet_id                   = module.vpc.private_subnet_ids[0]
+  security_group_ids          = [aws_security_group.redis_private.id]
+  associate_public_ip_address = false
+  manage_key_pair             = true
+}
+
+# ──────────────────────────────────────────────
+# EC2 — Redis Clone (Private)
+# - stg Redis와 동일 패턴으로 신규 EC2 추가
+# - 요청 AMI: ami-0198cb7bbcb7d1673
+# ──────────────────────────────────────────────
+
+module "ec2_redis_clone" {
+  source = "../../modules/ec2"
+
+  environment                 = var.environment
+  purpose                     = "redis-clone"
+  instance_type               = "t3.small"
+  ami_id                      = "ami-0198cb7bbcb7d1673"
   subnet_id                   = module.vpc.private_subnet_ids[0]
   security_group_ids          = [aws_security_group.redis_private.id]
   associate_public_ip_address = false
