@@ -3,7 +3,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-export BASE_URL="${BASE_URL:-https://dev.tasteam.kr}"
+export BASE_URL="${BASE_URL:-https://stg.tasteam.kr}"
 USERS="${USERS:-1000}"
 SPAWN_RATE="${SPAWN_RATE:-50}"
 RUN_TIME="${RUN_TIME:-35m}"

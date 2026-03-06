@@ -2,7 +2,7 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 
 // ============ Configuration ============
-export const BASE_URL = __ENV.BASE_URL || 'https://dev.tasteam.kr';
+export const BASE_URL = __ENV.BASE_URL || 'https://stg.tasteam.kr';
 
 // 테스트 계정 정보
 // 테스트 계정 정보

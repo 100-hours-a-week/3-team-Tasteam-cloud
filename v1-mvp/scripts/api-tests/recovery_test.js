@@ -15,7 +15,7 @@
  *
  * 실행 방법:
  *   ./run-recovery.sh
- *   BASE_URL=https://dev.tasteam.kr k6 run recovery_test.js
+ *   BASE_URL=https://stg.tasteam.kr k6 run recovery_test.js
  */
 
 import { sleep } from 'k6';

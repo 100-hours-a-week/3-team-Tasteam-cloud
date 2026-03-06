@@ -15,7 +15,7 @@
 #   K6_PROMETHEUS_RW_PASSWORD    - (설정된 기본값)
 #   K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM - true (네이티브 히스토그램)
 #
-#   BASE_URL - https://dev.tasteam.kr
+#   BASE_URL - https://stg.tasteam.kr
 
 set -e
 
@@ -30,7 +30,7 @@ export K6_PROMETHEUS_RW_PASSWORD="${K6_PROMETHEUS_RW_PASSWORD:-tasteam-k6-metric
 export K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM="${K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM:-true}"
 
 # 테스트 대상 서버
-export BASE_URL="${BASE_URL:-https://dev.tasteam.kr}"
+export BASE_URL="${BASE_URL:-https://stg.tasteam.kr}"
 
 # ============ 옵션 파싱 ============
 RESET_DB=false

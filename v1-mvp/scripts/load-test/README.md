@@ -25,21 +25,21 @@
 cd v1-mvp/scripts/load-test
 
 # 1차 병목 탐색 (full)
-BASE_URL=https://dev.tasteam.kr ./run-phase1-off.sh --suite full
+BASE_URL=https://stg.tasteam.kr ./run-phase1-off.sh --suite full
 
 # 1차 mixed (ON)
-BASE_URL=https://dev.tasteam.kr ./run-phase1-on.sh --suite mixed
+BASE_URL=https://stg.tasteam.kr ./run-phase1-on.sh --suite mixed
 
 # 1차 OFF/ON 비교 실행
-BASE_URL=https://dev.tasteam.kr ./run-cache-compare.sh --suite mixed
+BASE_URL=https://stg.tasteam.kr ./run-cache-compare.sh --suite mixed
 
 # 2차 24h Soak (OFF / ON)
-BASE_URL=https://dev.tasteam.kr ./run-long-24h-off.sh
-BASE_URL=https://dev.tasteam.kr ./run-long-24h-on.sh
+BASE_URL=https://stg.tasteam.kr ./run-long-24h-off.sh
+BASE_URL=https://stg.tasteam.kr ./run-long-24h-on.sh
 
 # 2차 48h Soak (OFF / ON)
-BASE_URL=https://dev.tasteam.kr ./run-long-48h-off.sh
-BASE_URL=https://dev.tasteam.kr ./run-long-48h-on.sh
+BASE_URL=https://stg.tasteam.kr ./run-long-48h-off.sh
+BASE_URL=https://stg.tasteam.kr ./run-long-48h-on.sh
 ```
 
 ## Suite 목록 (`run-phase1.sh --suite`)
@@ -55,7 +55,7 @@ BASE_URL=https://dev.tasteam.kr ./run-long-48h-on.sh
 
 ```bash
 cd v1-mvp/scripts/load-test
-BASE_URL=https://dev.tasteam.kr USERS=1000 SPAWN_RATE=50 RUN_TIME=35m ./run-locust.sh
+BASE_URL=https://stg.tasteam.kr USERS=1000 SPAWN_RATE=50 RUN_TIME=35m ./run-locust.sh
 ```
 
 ## 참고

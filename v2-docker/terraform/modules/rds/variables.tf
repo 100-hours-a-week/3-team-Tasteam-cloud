@@ -15,6 +15,12 @@ variable "allocated_storage" {
   default     = 20
 }
 
+variable "max_allocated_storage" {
+  description = "스토리지 자동 확장 상한 (GB). 0이면 자동 확장 비활성화"
+  type        = number
+  default     = 100
+}
+
 variable "engine_version" {
   description = "PostgreSQL 엔진 버전"
   type        = string
