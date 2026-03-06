@@ -23,7 +23,7 @@ api-tests/
 
 | 변수 | 설명 | 기본값 |
 |-----|------|-------|
-| `BASE_URL` | 테스트 대상 서버 URL | `https://dev.tasteam.kr` |
+| `BASE_URL` | 테스트 대상 서버 URL | `https://stg.tasteam.kr` |
 | `K6_PROMETHEUS_RW_SERVER_URL` | Prometheus Remote Write URL | `https://prom.tasteam.kr/api/v1/write` |
 | `K6_PROMETHEUS_RW_USERNAME` | Prometheus Basic Auth 계정명 | `tasteam` |
 | `K6_PROMETHEUS_RW_PASSWORD` | Prometheus Basic Auth 비밀번호 | (내장) |

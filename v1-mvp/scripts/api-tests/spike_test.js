@@ -17,7 +17,7 @@
  *
  * 실행 방법:
  *   SPIKE_TARGET=search ./run-spike.sh
- *   SPIKE_TARGET=main BASE_URL=https://dev.tasteam.kr k6 run spike_test.js
+ *   SPIKE_TARGET=main BASE_URL=https://stg.tasteam.kr k6 run spike_test.js
  */
 
 import { sleep } from 'k6';

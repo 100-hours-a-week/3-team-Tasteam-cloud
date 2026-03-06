@@ -3,7 +3,7 @@ import random
 import time
 from locust import HttpUser, task, between
 
-BASE_URL = os.getenv("BASE_URL", "https://dev.tasteam.kr")
+BASE_URL = os.getenv("BASE_URL", "https://stg.tasteam.kr")
 USER_ID_MAX = int(os.getenv("USER_ID_MAX", "1000"))
 
 SEARCH_KEYWORDS = ["파스타", "치킨", "피자", "카페", "강남", "성수", "점심", "회식", "가성비"]
