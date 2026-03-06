@@ -156,8 +156,8 @@ resource "aws_iam_role_policy" "monitoring_ssm" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
+        Effect = "Allow"
+        Action = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
         Resource = [
           "arn:aws:ssm:*:*:parameter/*/tasteam/monitoring",
           "arn:aws:ssm:*:*:parameter/*/tasteam/monitoring/*"
@@ -598,7 +598,8 @@ locals {
   backend_readonly_paramstore_users = toset([
     "sei",
     "devon",
-    "jian"
+    "jian",
+    "jayvi"
   ])
 }
 
@@ -618,6 +619,11 @@ resource "aws_iam_user_policy_attachment" "backend_readonly_access" {
 
   user       = aws_iam_user.backend_readonly_paramstore[each.key].name
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
+resource "aws_iam_user_policy_attachment" "backend_ec2_full_access_jayvi" {
+  user       = aws_iam_user.backend_readonly_paramstore["jayvi"].name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
 }
 
 resource "aws_iam_user_policy_attachment" "backend_change_password" {
