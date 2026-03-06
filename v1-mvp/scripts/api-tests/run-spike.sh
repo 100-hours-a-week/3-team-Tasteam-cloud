@@ -7,7 +7,7 @@
 #
 # 환경변수:
 #   SPIKE_TARGET  - search(기본값) | main | group | chat | write
-#   BASE_URL      - https://dev.tasteam.kr (기본값)
+#   BASE_URL      - https://stg.tasteam.kr (기본값)
 #
 # 옵션:
 #   --reset-db       테스트 전 개발 DB를 초기화합니다.
@@ -23,7 +23,7 @@ export K6_PROMETHEUS_RW_USERNAME="${K6_PROMETHEUS_RW_USERNAME:-tasteam}"
 export K6_PROMETHEUS_RW_PASSWORD="${K6_PROMETHEUS_RW_PASSWORD:-tasteam-k6-metrics}"
 export K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM="${K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM:-true}"
 
-export BASE_URL="${BASE_URL:-https://dev.tasteam.kr}"
+export BASE_URL="${BASE_URL:-https://stg.tasteam.kr}"
 export SPIKE_TARGET="${SPIKE_TARGET:-search}"
 
 RESET_DB=false

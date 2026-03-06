@@ -10,7 +10,7 @@
  *
  * 실행 방법:
  *   TEST_TYPE=read-heavy ./run-stress.sh
- *   TEST_TYPE=write-heavy BASE_URL=https://dev.tasteam.kr k6 run stress_test.js
+ *   TEST_TYPE=write-heavy BASE_URL=https://stg.tasteam.kr k6 run stress_test.js
  */
 
 import { sleep } from 'k6';

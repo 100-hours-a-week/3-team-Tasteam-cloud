@@ -12,7 +12,7 @@
 #   K6_PROMETHEUS_RW_SERVER_URL  - https://prom-dev.tasteam.kr/api/v1/write
 #   K6_PROMETHEUS_RW_USERNAME    - tasteam
 #   K6_PROMETHEUS_RW_PASSWORD    - tasteam-k6-metrics
-#   BASE_URL                     - https://dev.tasteam.kr
+#   BASE_URL                     - https://stg.tasteam.kr
 
 set -e
 
@@ -24,7 +24,7 @@ export K6_PROMETHEUS_RW_USERNAME="${K6_PROMETHEUS_RW_USERNAME:-tasteam}"
 export K6_PROMETHEUS_RW_PASSWORD="${K6_PROMETHEUS_RW_PASSWORD:-tasteam-k6-metrics}"
 export K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM="${K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM:-true}"
 
-export BASE_URL="${BASE_URL:-https://dev.tasteam.kr}"
+export BASE_URL="${BASE_URL:-https://stg.tasteam.kr}"
 
 # ============ 옵션 파싱 ============
 USE_PROMETHEUS=true
