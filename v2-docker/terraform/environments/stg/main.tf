@@ -355,13 +355,13 @@ module "asg_spring" {
   environment        = var.environment
   purpose            = "spring"
   instance_type      = "t3.small"
-  ami_id             = "ami-0d7b2faa7f90b6334"
+  ami_id             = "ami-05c852fd45180f54f"
   subnet_ids         = [module.vpc.private_subnet_ids[0]]
   security_group_ids = [module.security.app_sg_id, aws_security_group.spring_redis_source.id]
   aws_region         = var.aws_region
 
-  min_size     = 2
-  desired_size = 2
+  min_size     = 1
+  desired_size = 1
   max_size     = 2
 
   app_port = 8080

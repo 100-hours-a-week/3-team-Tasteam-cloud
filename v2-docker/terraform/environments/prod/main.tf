@@ -379,7 +379,7 @@ module "asg_spring" {
   environment        = var.environment
   purpose            = "spring"
   instance_type      = "t3.small"
-  ami_id             = "ami-0882e108662c210da"
+  ami_id             = "ami-05c852fd45180f54f"
   subnet_ids         = [module.vpc.private_subnet_ids[0]]
   security_group_ids = [module.security.app_sg_id, aws_security_group.spring_redis_source.id]
   aws_region         = var.aws_region
