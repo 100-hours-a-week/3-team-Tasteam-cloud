@@ -687,6 +687,81 @@ resource "aws_iam_user_policy" "backend_parameter_store_full" {
   })
 }
 
+locals {
+  backend_stg_ssm_session_users = {
+    clay  = aws_iam_user.backend_full_access_clay.name
+    devon = aws_iam_user.backend_readonly_paramstore["devon"].name
+    jian  = aws_iam_user.backend_readonly_paramstore["jian"].name
+    sei   = aws_iam_user.backend_readonly_paramstore["sei"].name
+  }
+}
+
+resource "aws_iam_policy" "backend_stg_ssm_session_access" {
+  name        = "backend-stg-ssm-session-access"
+  description = "Allow Session Manager shell access to stg-tagged EC2 instances"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "StartSessionToStgInstances"
+        Effect = "Allow"
+        Action = [
+          "ssm:StartSession"
+        ]
+        Resource = "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*"
+        Condition = {
+          StringEquals = {
+            "ssm:resourceTag/Environment" = "stg"
+          }
+        }
+      },
+      {
+        Sid    = "UseSessionDocuments"
+        Effect = "Allow"
+        Action = [
+          "ssm:StartSession"
+        ]
+        Resource = [
+          "arn:aws:ssm:${var.aws_region}::document/SSM-SessionManagerRunShell",
+          "arn:aws:ssm:${var.aws_region}::document/AWS-StartInteractiveCommand",
+          "arn:aws:ssm:${var.aws_region}::document/AWS-StartPortForwardingSession",
+          "arn:aws:ssm:${var.aws_region}::document/AWS-StartPortForwardingSessionToRemoteHost"
+        ]
+      },
+      {
+        Sid    = "ManageOwnSessions"
+        Effect = "Allow"
+        Action = [
+          "ssm:ResumeSession",
+          "ssm:TerminateSession"
+        ]
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:session/$${aws:userid}-*"
+      },
+      {
+        Sid    = "ReadSessionTargets"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances",
+          "ssm:DescribeDocument",
+          "ssm:DescribeInstanceInformation",
+          "ssm:DescribeSessions",
+          "ssm:GetConnectionStatus",
+          "ssm:GetDocument"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_user_policy_attachment" "backend_stg_ssm_session_access" {
+  for_each = local.backend_stg_ssm_session_users
+
+  user       = each.value
+  policy_arn = aws_iam_policy.backend_stg_ssm_session_access.arn
+}
+
 # ──────────────────────────────────────────────
 # IAM — Cloud User (Full Access)
 # ──────────────────────────────────────────────
