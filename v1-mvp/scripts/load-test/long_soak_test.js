@@ -16,6 +16,7 @@ import {
     executePersonalJourney,
     executeChatJourney,
     executeWritingJourney,
+    prepareHotspotPools,
 } from '../api-tests/shared/scenarios.js';
 
 const SOAK_MODE = __ENV.SOAK_MODE || '24h';
@@ -94,6 +95,7 @@ function buildState(data) {
     state.subgroupId = data.subgroupId;
     state.chatRoomId = data.chatRoomId;
     state.keywordIds = data.keywordIds;
+    state.hotspot = data.hotspot || null;
     return state;
 }
 
@@ -110,11 +112,15 @@ export function setup() {
     const keywordIds = getReviewKeywords(baseToken);
 
     let groupId = null;
+    let groupIds = [];
     const myGroupsRes = getMyGroups(baseToken);
     if (myGroupsRes && myGroupsRes.status === 200) {
         try {
             const items = myGroupsRes.json('data.items') || [];
-            if (items.length > 0) groupId = items[0].id;
+            if (items.length > 0) {
+                groupId = items[0].id;
+                groupIds = items.map((item) => item.id).filter(Boolean);
+            }
         } catch (e) {
             // ignore
         }
@@ -122,6 +128,10 @@ export function setup() {
 
     if (!groupId) groupId = joinGroup(baseToken);
     if (!groupId) throw new Error('필수 그룹 ID 확보 실패: 테스트 중단');
+
+    if (groupIds.length === 0 && groupId) {
+        groupIds = [groupId];
+    }
 
     const subgroupRes = getGroupSubgroups(baseToken, groupId);
     const subgroupId = subgroupRes && subgroupRes.items && subgroupRes.items.length > 0
@@ -133,8 +143,10 @@ export function setup() {
     const chatRoomId = (chatRoomRes && chatRoomRes.chatRoomId) || null;
     if (!chatRoomId) throw new Error('필수 채팅방 ID 확보 실패: 테스트 중단');
 
+    const hotspot = prepareHotspotPools(baseToken, groupIds);
+
     console.log(`✅ setup 완료 tokens=${tokens.length}, groupId=${groupId}, subgroupId=${subgroupId}, chatRoomId=${chatRoomId}`);
-    return { tokens, groupId, subgroupId, chatRoomId, keywordIds };
+    return { tokens, groupId, subgroupId, chatRoomId, keywordIds, hotspot };
 }
 
 export function soakScenario(data) {

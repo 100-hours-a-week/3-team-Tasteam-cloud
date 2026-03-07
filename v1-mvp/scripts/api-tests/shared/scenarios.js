@@ -24,6 +24,37 @@ const TEST_GROUP = {
 
 const TEST_RESTAURANT_ID = 6001;
 
+// ============ Hotspot Configuration ============
+const HOTSPOT_CONFIG = {
+    restaurant: {
+        topPercent: Number(__ENV.HOT_RESTAURANT_TOP_PERCENT || 0.10),
+        hotShare: Number(__ENV.HOT_RESTAURANT_TRAFFIC_SHARE || 0.60),
+    },
+    group: {
+        topPercent: Number(__ENV.HOT_GROUP_TOP_PERCENT || 0.10),
+        hotShare: Number(__ENV.HOT_GROUP_TRAFFIC_SHARE || 0.50),
+    },
+    subgroup: {
+        topPercent: Number(__ENV.HOT_SUBGROUP_TOP_PERCENT || __ENV.HOT_GROUP_TOP_PERCENT || 0.10),
+        hotShare: Number(__ENV.HOT_SUBGROUP_TRAFFIC_SHARE || __ENV.HOT_GROUP_TRAFFIC_SHARE || 0.50),
+    },
+    chat: {
+        topPercent: Number(__ENV.HOT_CHAT_TOP_PERCENT || 0.05),
+        hotShare: Number(__ENV.HOT_CHAT_TRAFFIC_SHARE || 0.70),
+    },
+    keyword: {
+        topPercent: Number(__ENV.HOT_KEYWORD_TOP_PERCENT || 0.20),
+        hotShare: Number(__ENV.HOT_KEYWORD_TRAFFIC_SHARE || 0.60),
+    },
+    pool: {
+        restaurantTarget: Number(__ENV.RESTAURANT_POOL_SIZE || 200),
+        restaurantRounds: Number(__ENV.RESTAURANT_POOL_ROUNDS || 6),
+        groupLimit: Number(__ENV.HOTSPOT_GROUP_LIMIT || 5),
+        subgroupLimit: Number(__ENV.HOTSPOT_SUBGROUP_LIMIT || 30),
+        chatRoomLimit: Number(__ENV.HOTSPOT_CHATROOM_LIMIT || 50),
+    },
+};
+
 // ============ Shared State ============
 // VU별 상태를 저장하기 위한 객체
 export function createState() {
@@ -35,6 +66,7 @@ export function createState() {
         restaurantId: null,
         reviewId: null,
         keywordIds: [],
+        hotspot: null,
     };
 }
 
@@ -47,6 +79,77 @@ function getHeaders(token = null) {
         headers['Authorization'] = `Bearer ${token}`;
     }
     return headers;
+}
+
+function clampPercent(value, fallback) {
+    if (!Number.isFinite(value)) return fallback;
+    if (value <= 0) return fallback;
+    if (value >= 1) return 1;
+    return value;
+}
+
+function normalizeConfig() {
+    HOTSPOT_CONFIG.restaurant.topPercent = clampPercent(HOTSPOT_CONFIG.restaurant.topPercent, 0.10);
+    HOTSPOT_CONFIG.restaurant.hotShare = clampPercent(HOTSPOT_CONFIG.restaurant.hotShare, 0.60);
+    HOTSPOT_CONFIG.group.topPercent = clampPercent(HOTSPOT_CONFIG.group.topPercent, 0.10);
+    HOTSPOT_CONFIG.group.hotShare = clampPercent(HOTSPOT_CONFIG.group.hotShare, 0.50);
+    HOTSPOT_CONFIG.subgroup.topPercent = clampPercent(HOTSPOT_CONFIG.subgroup.topPercent, 0.10);
+    HOTSPOT_CONFIG.subgroup.hotShare = clampPercent(HOTSPOT_CONFIG.subgroup.hotShare, 0.50);
+    HOTSPOT_CONFIG.chat.topPercent = clampPercent(HOTSPOT_CONFIG.chat.topPercent, 0.05);
+    HOTSPOT_CONFIG.chat.hotShare = clampPercent(HOTSPOT_CONFIG.chat.hotShare, 0.70);
+    HOTSPOT_CONFIG.keyword.topPercent = clampPercent(HOTSPOT_CONFIG.keyword.topPercent, 0.20);
+    HOTSPOT_CONFIG.keyword.hotShare = clampPercent(HOTSPOT_CONFIG.keyword.hotShare, 0.60);
+}
+
+function parseCsvEnv(name) {
+    const raw = __ENV[name];
+    if (!raw) return [];
+    return raw
+        .split(',')
+        .map((v) => v.trim())
+        .filter((v) => v.length > 0)
+        .map((v) => (String(Number(v)) === v ? Number(v) : v));
+}
+
+function uniqueList(list) {
+    return Array.from(new Set((list || []).filter((v) => v !== null && v !== undefined)));
+}
+
+function splitHotCold(list, topPercent) {
+    const unique = uniqueList(list);
+    if (unique.length === 0) return { hot: [], cold: [] };
+    const size = Math.max(1, Math.floor(unique.length * topPercent));
+    return {
+        hot: unique.slice(0, size),
+        cold: unique.slice(size),
+    };
+}
+
+function buildPoolFromEnvOrSplit(allIds, envHot, envCold, topPercent) {
+    const hotFromEnv = uniqueList(parseCsvEnv(envHot));
+    const coldFromEnv = uniqueList(parseCsvEnv(envCold));
+    const allUnique = uniqueList(allIds);
+
+    if (hotFromEnv.length > 0) {
+        const hot = hotFromEnv;
+        const cold = coldFromEnv.length > 0
+            ? coldFromEnv
+            : allUnique.filter((id) => !hot.includes(id));
+        return { hot, cold };
+    }
+
+    return splitHotCold(allUnique, topPercent);
+}
+
+function pickFromHotspot(hot, cold, hotShare) {
+    const hotPool = hot || [];
+    const coldPool = cold || [];
+    if (hotPool.length === 0 && coldPool.length === 0) return null;
+    if (coldPool.length === 0) return hotPool[Math.floor(Math.random() * hotPool.length)];
+    if (hotPool.length === 0) return coldPool[Math.floor(Math.random() * coldPool.length)];
+    const pickHot = Math.random() < hotShare;
+    const pool = pickHot ? hotPool : coldPool;
+    return pool[Math.floor(Math.random() * pool.length)];
 }
 
 // ============ Auth Functions ============
@@ -351,7 +454,7 @@ export function search(token, keyword = 'test', loc = null) {
 /**
  * 리뷰 작성
  */
-export function createReview(token, groupId, keywordIds) {
+export function createReview(token, groupId, keywordIds, restaurantId = TEST_RESTAURANT_ID) {
     const targetGroupId = groupId || TEST_GROUP.id;
     const selectedKeywordIds = keywordIds && keywordIds.length > 0 ? [keywordIds[0]] : [1];
 
@@ -363,7 +466,7 @@ export function createReview(token, groupId, keywordIds) {
     });
 
     const res = http.post(
-        `${BASE_URL}/api/v1/restaurants/${TEST_RESTAURANT_ID}/reviews`,
+        `${BASE_URL}/api/v1/restaurants/${restaurantId}/reviews`,
         payload,
         { headers: getHeaders(token), tags: { name: 'create_review', type: 'write' } }
     );
@@ -390,7 +493,7 @@ export function executeReadScenario(state) {
     // 음식점 목록 + ID 추출
     const listResult = getRestaurantList(state.token);
     if (listResult.response && listResult.response.status === 200) successCount++;
-    const restaurantId = listResult.restaurantId || state.restaurantId;
+    const restaurantId = pickRestaurantId(state, listResult.restaurantId || state.restaurantId);
 
     // 음식점 상세
     if (restaurantId) {
@@ -404,14 +507,15 @@ export function executeReadScenario(state) {
     const reviewId = reviewResult.reviewId || state.reviewId;
 
     // 그룹 상세
-    if (state.groupId) {
-        const resGroup = getGroupDetail(state.token, state.groupId);
+    const targetGroupId = pickGroupId(state);
+    if (targetGroupId) {
+        const resGroup = getGroupDetail(state.token, targetGroupId);
         if (resGroup && resGroup.status === 200) successCount++;
     }
 
     // 그룹 리뷰 목록
-    if (state.groupId) {
-        const resGroupReview = getGroupReviews(state.token, state.groupId);
+    if (targetGroupId) {
+        const resGroupReview = getGroupReviews(state.token, targetGroupId);
         if (resGroupReview && resGroupReview.response && resGroupReview.response.status === 200) successCount++;
     }
 
@@ -422,7 +526,7 @@ export function executeReadScenario(state) {
     }
 
     // 통합 검색
-    const resSearch = search(state.token);
+    const resSearch = search(state.token, pickKeyword(state), randomLocation());
     if (resSearch && resSearch.status === 200) successCount++;
 
     return successCount;
@@ -432,7 +536,8 @@ export function executeReadScenario(state) {
  * 전체 쓰기 시나리오 실행 (SLO: p95 < 3초)
  */
 export function executeWriteScenario(state) {
-    const res = createReview(state.token, state.groupId, state.keywordIds);
+    const restaurantId = pickRestaurantId(state);
+    const res = createReview(state.token, state.groupId, state.keywordIds, restaurantId);
     if (res && (res.status === 200 || res.status === 201)) {
         return 1;
     }
@@ -507,6 +612,166 @@ const CHAT_MESSAGES = [
 
 export function randomChatMessage() {
     return CHAT_MESSAGES[Math.floor(Math.random() * CHAT_MESSAGES.length)];
+}
+
+// ============ Hotspot Pools & Pickers ============
+
+export function prepareKeywordHotspot(keywords = SEARCH_KEYWORDS) {
+    normalizeConfig();
+    const hotPool = buildPoolFromEnvOrSplit(keywords, 'HOT_KEYWORDS', 'COLD_KEYWORDS', HOTSPOT_CONFIG.keyword.topPercent);
+    return {
+        keywords: hotPool,
+        config: HOTSPOT_CONFIG,
+    };
+}
+
+function collectRestaurantIds(token, targetCount, rounds) {
+    const ids = new Set();
+    const maxRounds = Math.max(1, rounds || HOTSPOT_CONFIG.pool.restaurantRounds);
+    const limit = Math.max(10, targetCount || HOTSPOT_CONFIG.pool.restaurantTarget);
+
+    for (let i = 0; i < maxRounds; i++) {
+        const loc = randomLocation();
+        const size = Math.min(50, Math.max(10, Math.floor(limit / maxRounds)));
+        const res = http.get(
+            `${BASE_URL}/api/v1/restaurants?latitude=${loc.lat}&longitude=${loc.lon}&radius=2000&size=${size}`,
+            { headers: getHeaders(token), tags: { name: 'restaurant_list_seed', type: 'read' } }
+        );
+        if (res.status === 200) {
+            try {
+                const items = res.json('data.items') || [];
+                items.forEach((item) => {
+                    if (item && item.id) ids.add(item.id);
+                });
+            } catch (e) {
+                // ignore
+            }
+        }
+        if (ids.size >= limit) break;
+    }
+
+    return Array.from(ids);
+}
+
+function collectGroupContext(token, groupIds) {
+    const subgroupIds = new Set();
+    const chatRoomIds = new Set();
+    const groups = uniqueList(groupIds).slice(0, HOTSPOT_CONFIG.pool.groupLimit);
+
+    groups.forEach((groupId) => {
+        const subgroupRes = getGroupSubgroups(token, groupId);
+        const items = subgroupRes && subgroupRes.items ? subgroupRes.items : [];
+        const subset = items.slice(0, HOTSPOT_CONFIG.pool.subgroupLimit);
+        subset.forEach((item) => {
+            const subgroupId = item && item.subgroupId;
+            if (subgroupId) subgroupIds.add(subgroupId);
+        });
+    });
+
+    Array.from(subgroupIds).slice(0, HOTSPOT_CONFIG.pool.chatRoomLimit).forEach((subgroupId) => {
+        const chatRoomRes = getSubgroupChatRoom(token, subgroupId);
+        if (chatRoomRes && chatRoomRes.chatRoomId) chatRoomIds.add(chatRoomRes.chatRoomId);
+    });
+
+    return {
+        subgroupIds: Array.from(subgroupIds),
+        chatRoomIds: Array.from(chatRoomIds),
+    };
+}
+
+export function prepareHotspotPools(token, groupIds = []) {
+    normalizeConfig();
+
+    const restaurants = buildPoolFromEnvOrSplit(
+        collectRestaurantIds(token, HOTSPOT_CONFIG.pool.restaurantTarget, HOTSPOT_CONFIG.pool.restaurantRounds),
+        'HOT_RESTAURANT_IDS',
+        'COLD_RESTAURANT_IDS',
+        HOTSPOT_CONFIG.restaurant.topPercent
+    );
+
+    const groups = buildPoolFromEnvOrSplit(
+        groupIds,
+        'HOT_GROUP_IDS',
+        'COLD_GROUP_IDS',
+        HOTSPOT_CONFIG.group.topPercent
+    );
+
+    const groupContext = collectGroupContext(token, groupIds);
+
+    const subgroups = buildPoolFromEnvOrSplit(
+        groupContext.subgroupIds,
+        'HOT_SUBGROUP_IDS',
+        'COLD_SUBGROUP_IDS',
+        HOTSPOT_CONFIG.subgroup.topPercent
+    );
+
+    const chatRooms = buildPoolFromEnvOrSplit(
+        groupContext.chatRoomIds,
+        'HOT_CHAT_ROOM_IDS',
+        'COLD_CHAT_ROOM_IDS',
+        HOTSPOT_CONFIG.chat.topPercent
+    );
+
+    const keywords = buildPoolFromEnvOrSplit(
+        SEARCH_KEYWORDS,
+        'HOT_KEYWORDS',
+        'COLD_KEYWORDS',
+        HOTSPOT_CONFIG.keyword.topPercent
+    );
+
+    return {
+        restaurants,
+        groups,
+        subgroups,
+        chatRooms,
+        keywords,
+        config: HOTSPOT_CONFIG,
+    };
+}
+
+export function pickRestaurantId(state, fallbackId = null) {
+    const hs = state && state.hotspot;
+    if (hs && hs.restaurants) {
+        const picked = pickFromHotspot(hs.restaurants.hot, hs.restaurants.cold, hs.config.restaurant.hotShare);
+        if (picked) return picked;
+    }
+    return fallbackId || (state && state.restaurantId) || TEST_RESTAURANT_ID;
+}
+
+export function pickGroupId(state) {
+    const hs = state && state.hotspot;
+    if (hs && hs.groups) {
+        const picked = pickFromHotspot(hs.groups.hot, hs.groups.cold, hs.config.group.hotShare);
+        if (picked) return picked;
+    }
+    return state && state.groupId;
+}
+
+export function pickSubgroupId(state, fallbackId = null) {
+    const hs = state && state.hotspot;
+    if (hs && hs.subgroups) {
+        const picked = pickFromHotspot(hs.subgroups.hot, hs.subgroups.cold, hs.config.subgroup.hotShare);
+        if (picked) return picked;
+    }
+    return fallbackId || (state && state.subgroupId);
+}
+
+export function pickChatRoomId(state) {
+    const hs = state && state.hotspot;
+    if (hs && hs.chatRooms) {
+        const picked = pickFromHotspot(hs.chatRooms.hot, hs.chatRooms.cold, hs.config.chat.hotShare);
+        if (picked) return picked;
+    }
+    return state && state.chatRoomId;
+}
+
+export function pickKeyword(state) {
+    const hs = state && state.hotspot;
+    if (hs && hs.keywords) {
+        const picked = pickFromHotspot(hs.keywords.hot, hs.keywords.cold, hs.config.keyword.hotShare);
+        if (picked) return picked;
+    }
+    return randomKeyword();
 }
 
 // ============ Additional API Functions ============
@@ -929,7 +1194,7 @@ export function executeBrowsingJourney(state) {
     const listResult = getRestaurantListByLocation(state.token, loc.lat, loc.lon, radius, size);
     if (listResult.response && listResult.response.status === 200) successCount++;
 
-    const restaurantId = listResult.restaurantId || state.restaurantId;
+    const restaurantId = pickRestaurantId(state, listResult.restaurantId || state.restaurantId);
     if (restaurantId) {
         // 4. 음식점 상세
         const resDetail = getRestaurantDetail(state.token, restaurantId);
@@ -992,7 +1257,7 @@ export function executeSearchingJourney(state) {
     const searchCount = Math.floor(Math.random() * 3) + 1;
     let lastRestaurantId = null;
     for (let i = 0; i < searchCount; i++) {
-        const keyword = randomKeyword();
+        const keyword = pickKeyword(state);
         const loc = randomLocation();
         const res = search(state.token, keyword, loc);
         if (res && res.status === 200) {
@@ -1013,29 +1278,30 @@ export function executeSearchingJourney(state) {
     }
 
     // 검색 결과 음식점 상세 조회
-    if (lastRestaurantId) {
-        const resDetail = getRestaurantDetail(state.token, lastRestaurantId);
+    const detailRestaurantId = pickRestaurantId(state, lastRestaurantId);
+    if (detailRestaurantId) {
+        const resDetail = getRestaurantDetail(state.token, detailRestaurantId);
         if (resDetail && resDetail.status === 200) {
             successCount++;
-            analyticsEvents.push(buildEvent('ui.restaurant.clicked', { restaurantId: lastRestaurantId, source: 'search' }));
-            analyticsEvents.push(buildEvent('ui.restaurant.viewed', { restaurantId: lastRestaurantId }));
+            analyticsEvents.push(buildEvent('ui.restaurant.clicked', { restaurantId: detailRestaurantId, source: 'search' }));
+            analyticsEvents.push(buildEvent('ui.restaurant.viewed', { restaurantId: detailRestaurantId }));
         }
 
         // [사용자 이벤트] 20% 확률로 즐겨찾기 toggle
         if (Math.random() < 0.2) {
-            const addRes = addFavoriteRestaurant(state.token, lastRestaurantId);
+            const addRes = addFavoriteRestaurant(state.token, detailRestaurantId);
             if (addRes) {
                 if (addRes.status === 409) {
                     // 이미 즐겨찾기됨 → toggle off
-                    removeFavoriteRestaurant(state.token, lastRestaurantId);
-                    analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId: lastRestaurantId, action: 'remove' }));
+                    removeFavoriteRestaurant(state.token, detailRestaurantId);
+                    analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId: detailRestaurantId, action: 'remove' }));
                 } else if (addRes.status === 200 || addRes.status === 201) {
-                    analyticsEvents.push(buildEvent('ui.favorite.sheet_opened', { restaurantId: lastRestaurantId }));
+                    analyticsEvents.push(buildEvent('ui.favorite.sheet_opened', { restaurantId: detailRestaurantId }));
                     if (Math.random() < 0.5) {
-                        removeFavoriteRestaurant(state.token, lastRestaurantId);
-                        analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId: lastRestaurantId, action: 'remove' }));
+                        removeFavoriteRestaurant(state.token, detailRestaurantId);
+                        analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId: detailRestaurantId, action: 'remove' }));
                     } else {
-                        analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId: lastRestaurantId, action: 'add' }));
+                        analyticsEvents.push(buildEvent('ui.favorite.updated', { restaurantId: detailRestaurantId, action: 'add' }));
                     }
                 }
             }
@@ -1051,35 +1317,36 @@ export function executeSearchingJourney(state) {
  */
 export function executeGroupJourney(state) {
     let successCount = 0;
-    if (!state.groupId) return successCount;
+    const targetGroupId = pickGroupId(state);
+    if (!targetGroupId) return successCount;
 
     const analyticsEvents = [
         buildEvent('ui.tab.changed', { tab: 'group' }),
-        buildEvent('ui.group.clicked', { groupId: state.groupId }),
+        buildEvent('ui.group.clicked', { groupId: targetGroupId }),
     ];
 
     // 1. 그룹 상세
-    const resGroup = getGroupDetail(state.token, state.groupId);
+    const resGroup = getGroupDetail(state.token, targetGroupId);
     if (resGroup && resGroup.status === 200) {
         successCount++;
-        analyticsEvents.push(buildEvent('ui.page.viewed', { page: 'group_detail', groupId: state.groupId }));
+        analyticsEvents.push(buildEvent('ui.page.viewed', { page: 'group_detail', groupId: targetGroupId }));
     }
 
     // 2. 그룹 리뷰 목록
-    const reviewResult = getGroupReviews(state.token, state.groupId);
+    const reviewResult = getGroupReviews(state.token, targetGroupId);
     if (reviewResult.response && reviewResult.response.status === 200) successCount++;
 
     // 3. 그룹 멤버
-    const resMembers = getGroupMembers(state.token, state.groupId);
+    const resMembers = getGroupMembers(state.token, targetGroupId);
     if (resMembers && resMembers.status === 200) successCount++;
 
     // 4. 그룹 리뷰 음식점 (랜덤 위치)
     const loc = randomLocation();
-    const resReviewed = getGroupReviewedRestaurants(state.token, state.groupId, loc);
+    const resReviewed = getGroupReviewedRestaurants(state.token, targetGroupId, loc);
     if (resReviewed && resReviewed.status === 200) successCount++;
 
     // 5. 그룹 내 서브그룹 목록
-    const subgroupResult = getGroupSubgroups(state.token, state.groupId);
+    const subgroupResult = getGroupSubgroups(state.token, targetGroupId);
     if (subgroupResult && subgroupResult.response && subgroupResult.response.status === 200) successCount++;
 
     // [사용자 이벤트] 모든 알림 읽음 처리
@@ -1156,9 +1423,10 @@ export function executePersonalJourney(state) {
  */
 export function executeWritingJourney(state) {
     let successCount = 0;
+    const restaurantId = pickRestaurantId(state);
     const analyticsEvents = [
         buildEvent('ui.page.viewed', { page: 'review_write' }),
-        buildEvent('ui.review.write_started', { restaurantId: TEST_RESTAURANT_ID }),
+        buildEvent('ui.review.write_started', { restaurantId }),
     ];
 
     // AI 추천 확인 (리뷰 작성 전)
@@ -1176,10 +1444,10 @@ export function executeWritingJourney(state) {
         : getReviewKeywords(state.token);
 
     // 리뷰 작성
-    const res = createReview(state.token, state.groupId, keywordIds);
+    const res = createReview(state.token, state.groupId, keywordIds, restaurantId);
     if (res && (res.status === 200 || res.status === 201)) {
         successCount++;
-        analyticsEvents.push(buildEvent('ui.review.submitted', { restaurantId: TEST_RESTAURANT_ID }));
+        analyticsEvents.push(buildEvent('ui.review.submitted', { restaurantId }));
     }
 
     sendAnalyticsEvents(state.token, analyticsEvents);
@@ -1191,19 +1459,21 @@ export function executeWritingJourney(state) {
  */
 export function executeSubgroupJourney(state) {
     let successCount = 0;
-    if (!state.groupId) return successCount;
+    const targetGroupId = pickGroupId(state);
+    if (!targetGroupId) return successCount;
 
     const analyticsEvents = [];
 
     // 1. 서브그룹 목록
-    const subgroupResult = getGroupSubgroups(state.token, state.groupId);
+    const subgroupResult = getGroupSubgroups(state.token, targetGroupId);
     if (subgroupResult && subgroupResult.response && subgroupResult.response.status === 200) successCount++;
 
     // subgroupId 추출 (state 우선, 없으면 결과에서)
-    let subgroupId = state.subgroupId;
+    let subgroupId = pickSubgroupId(state);
     if (!subgroupId && subgroupResult && subgroupResult.items && subgroupResult.items.length > 0) {
         subgroupId = subgroupResult.items[0].subgroupId;
     }
+    subgroupId = pickSubgroupId(state, subgroupId);
     if (!subgroupId) return successCount;
 
     // 2. 서브그룹 상세
@@ -1225,7 +1495,7 @@ export function executeSubgroupJourney(state) {
     const chatRoomResult = getSubgroupChatRoom(state.token, subgroupId);
     if (chatRoomResult && chatRoomResult.response && chatRoomResult.response.status === 200) successCount++;
 
-    const chatRoomId = (chatRoomResult && chatRoomResult.chatRoomId) || state.chatRoomId;
+    const chatRoomId = pickChatRoomId(state) || (chatRoomResult && chatRoomResult.chatRoomId) || state.chatRoomId;
     if (!chatRoomId) {
         sendAnalyticsEvents(state.token, analyticsEvents);
         return successCount;
@@ -1258,7 +1528,7 @@ export function executeChatJourney(state) {
     const analyticsEvents = [];
 
     // chatRoomId 확인 (state 우선)
-    let chatRoomId = state.chatRoomId;
+    let chatRoomId = pickChatRoomId(state);
     if (!chatRoomId && state.subgroupId) {
         const chatRoomResult = getSubgroupChatRoom(state.token, state.subgroupId);
         if (chatRoomResult && chatRoomResult.response && chatRoomResult.response.status === 200) {
