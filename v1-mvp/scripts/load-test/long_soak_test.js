@@ -105,7 +105,7 @@ export function setup() {
 
     const tokens = batchLogin(USER_POOL);
     if (!tokens || tokens.length === 0) {
-        throw new Error('토큰 발급 실패: auth/token/test 확인 필요');
+        throw new Error('토큰 발급 실패: test/auth/token 확인 필요');
     }
 
     const baseToken = tokens[0];

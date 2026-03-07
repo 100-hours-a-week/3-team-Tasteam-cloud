@@ -168,7 +168,7 @@ export function login(user) {
     });
 
     const res = http.post(
-        `${BASE_URL}/api/v1/auth/token/test`,
+        `${BASE_URL}/api/v1/test/auth/token`,
         payload,
         { headers: getHeaders() }
     );
@@ -192,7 +192,7 @@ export function batchLogin(count = 50) {
         const user = getTestUser(i);
         requests.push({
             method: 'POST',
-            url: `${BASE_URL}/api/v1/auth/token/test`,
+            url: `${BASE_URL}/api/v1/test/auth/token`,
             body: JSON.stringify({
                 identifier: user.identifier,
                 nickname: user.nickname,
