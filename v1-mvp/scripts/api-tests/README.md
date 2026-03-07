@@ -24,6 +24,7 @@ api-tests/
 | 변수 | 설명 | 기본값 |
 |-----|------|-------|
 | `BASE_URL` | 테스트 대상 서버 URL | `https://stg.tasteam.kr` |
+| `REVERSE_GEOCODE_MODE` | 역지오코딩 호출 모드 (`per-vu-once` \| `per-token-once` \| `always` \| `off`) | `per-token-once` |
 | `K6_PROMETHEUS_RW_SERVER_URL` | Prometheus Remote Write URL | `https://prom.tasteam.kr/api/v1/write` |
 | `K6_PROMETHEUS_RW_USERNAME` | Prometheus Basic Auth 계정명 | `tasteam` |
 | `K6_PROMETHEUS_RW_PASSWORD` | Prometheus Basic Auth 비밀번호 | (내장) |

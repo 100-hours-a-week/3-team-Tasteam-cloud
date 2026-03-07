@@ -25,6 +25,7 @@ export K6_PROMETHEUS_RW_PASSWORD="${K6_PROMETHEUS_RW_PASSWORD:-tasteam-k6-metric
 export K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM="${K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM:-true}"
 
 export BASE_URL="${BASE_URL:-https://stg.tasteam.kr}"
+export REVERSE_GEOCODE_MODE="${REVERSE_GEOCODE_MODE:-per-vu-once}"
 
 # ============ 옵션 파싱 ============
 USE_PROMETHEUS=true
@@ -47,6 +48,7 @@ echo ""
 echo "🚀 리얼리스틱 부하 테스트 시작..."
 echo "   스크립트: ${SCRIPT_DIR}/realistic_test.js"
 echo "   Target: ${BASE_URL}"
+echo "   Reverse Geocode Mode: ${REVERSE_GEOCODE_MODE}"
 echo ""
 
 # Prometheus 출력 설정

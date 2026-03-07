@@ -55,6 +55,15 @@ const HOTSPOT_CONFIG = {
     },
 };
 
+// 역지오코딩 호출 제어:
+// - per-vu-once: VU(사용자 세션)당 최초 1회만 호출
+// - per-token-once(기본): 토큰(회원)당 최초 1회만 호출
+// - always: 브라우징 여정마다 항상 호출 (기존 동작)
+// - off: 호출하지 않음
+const REVERSE_GEOCODE_MODE = (__ENV.REVERSE_GEOCODE_MODE || 'per-token-once').toLowerCase();
+const REVERSE_GEOCODE_DONE_TOKENS = new Set();
+let REVERSE_GEOCODE_DONE_ONCE = false;
+
 // ============ Shared State ============
 // VU별 상태를 저장하기 위한 객체
 export function createState() {
@@ -1130,6 +1139,36 @@ export function reverseGeocode(lat, lon) {
     return res;
 }
 
+function maybeRunReverseGeocode(state, loc) {
+    if (!loc) return null;
+
+    if (REVERSE_GEOCODE_MODE === 'off') {
+        return null;
+    }
+
+    if (REVERSE_GEOCODE_MODE === 'always') {
+        return reverseGeocode(loc.lat, loc.lon);
+    }
+
+    if (REVERSE_GEOCODE_MODE === 'per-vu-once') {
+        if (REVERSE_GEOCODE_DONE_ONCE) {
+            return null;
+        }
+        REVERSE_GEOCODE_DONE_ONCE = true;
+        return reverseGeocode(loc.lat, loc.lon);
+    }
+
+    // 기본값(per-token-once): 토큰당 최초 1회만 호출
+    const tokenKey = state && state.token ? state.token : '__no_token__';
+    if (REVERSE_GEOCODE_DONE_TOKENS.has(tokenKey)) {
+        return null;
+    }
+
+    // 실패해도 재호출 폭증을 막기 위해 최초 시도 시점에 마킹
+    REVERSE_GEOCODE_DONE_TOKENS.add(tokenKey);
+    return reverseGeocode(loc.lat, loc.lon);
+}
+
 // ============ Analytics Functions ============
 
 function generateEventId() {
@@ -1171,7 +1210,7 @@ export function executeBrowsingJourney(state) {
 
     // 0. 역지오코딩 (앱 실행 시 발생)
     const loc = randomLocation();
-    const resGeo = reverseGeocode(loc.lat, loc.lon);
+    const resGeo = maybeRunReverseGeocode(state, loc);
     if (resGeo && resGeo.status === 200) successCount++;
 
     // 1. 홈 페이지
