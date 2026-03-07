@@ -35,6 +35,7 @@ import {
     executePersonalJourney,
     executeChatJourney,
     executeWritingJourney,
+    prepareHotspotPools,
 } from './shared/scenarios.js';
 import { logTestStart, createJourneyMetrics } from './shared/test-utils.js';
 
@@ -108,12 +109,14 @@ export function setup() {
 
     // 1. 기존 그룹 조회 (로컬 DB 상태 무관하게 동작)
     let groupId = null;
+    let groupIds = [];
     const myGroupsRes = getMyGroups(baseToken);
     if (myGroupsRes && myGroupsRes.status === 200) {
         try {
             const items = myGroupsRes.json('data.items');
             if (items && items.length > 0) {
                 groupId = items[0].id;
+                groupIds = items.map((item) => item.id).filter(Boolean);
             }
         } catch (e) { /* ignore */ }
     }
@@ -121,6 +124,10 @@ export function setup() {
     // 2. 속한 그룹 없으면 joinGroup 시도 (실패해도 null로 진행)
     if (!groupId) {
         groupId = joinGroup(baseToken);
+    }
+
+    if (groupIds.length === 0 && groupId) {
+        groupIds = [groupId];
     }
 
     // subgroupId 획득
@@ -136,9 +143,11 @@ export function setup() {
         chatRoomId = (chatRoomRes && chatRoomRes.chatRoomId) || null;
     }
 
+    const hotspot = prepareHotspotPools(baseToken, groupIds);
+
     console.log(`✅ Setup 완료: tokens=${tokens.length}개, groupId=${groupId}, subgroupId=${subgroupId}, chatRoomId=${chatRoomId}, keywords=${keywordIds.length}개`);
 
-    return { tokens, groupId, subgroupId, chatRoomId, keywordIds };
+    return { tokens, groupId, subgroupId, chatRoomId, keywordIds, hotspot };
 }
 
 // ============ Main VU Function ============
@@ -156,6 +165,7 @@ export default function(data) {
     state.subgroupId = data.subgroupId;
     state.chatRoomId = data.chatRoomId;
     state.keywordIds = data.keywordIds;
+    state.hotspot = data.hotspot || null;
 
     // Journey 선택 및 실행
     const journey = selectJourney();

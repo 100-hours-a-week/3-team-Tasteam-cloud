@@ -26,7 +26,7 @@ class TasteamUser(HttpUser):
             "nickname": f"부하테스트계정{uid}",
         }
 
-        with self.client.post("/api/v1/auth/token/test", json=login_body, name="auth/token/test", catch_response=True) as res:
+        with self.client.post("/api/v1/test/auth/token", json=login_body, name="test/auth/token", catch_response=True) as res:
             if res.status_code == 200:
                 try:
                     self.token = res.json().get("data", {}).get("accessToken")

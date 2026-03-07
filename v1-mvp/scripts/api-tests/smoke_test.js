@@ -32,7 +32,7 @@ export default function () {
             nickname: '스모크테스트계정1'
         });
 
-        const res = http.post(`${BASE_URL}/api/v1/auth/token/test`, loginPayload, params);
+        const res = http.post(`${BASE_URL}/api/v1/test/auth/token`, loginPayload, params);
 
         console.log(`[로그인] Status: ${res.status}, Body: ${res.body}`);
 

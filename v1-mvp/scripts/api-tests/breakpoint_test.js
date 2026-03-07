@@ -25,6 +25,7 @@ import {
     getReviewKeywords,
     executeReadScenario,
     executeWriteScenario,
+    prepareHotspotPools,
 } from './shared/scenarios.js';
 import { logTestStart, SuccessMetrics } from './shared/test-utils.js';
 
@@ -103,6 +104,7 @@ export function setup() {
         tokens, // 배열 전달
         groupId,
         keywordIds,
+        hotspot: prepareHotspotPools(baseToken, groupId ? [groupId] : []),
     };
 }
 
@@ -126,6 +128,7 @@ export function readScenario(data) {
 
     state.groupId = data.groupId;
     state.keywordIds = data.keywordIds;
+    state.hotspot = data.hotspot || null;
 
     const count = executeReadScenario(state);
     metrics.add(count, 'read_success_count');
@@ -148,6 +151,7 @@ export function writeScenario(data) {
 
     state.groupId = data.groupId;
     state.keywordIds = data.keywordIds;
+    state.hotspot = data.hotspot || null;
 
     const count = executeWriteScenario(state);
     metrics.add(count, 'write_success_count');
@@ -158,4 +162,3 @@ export function teardown(data) {
     console.log('🏁 Breakpoint Test 완료');
     console.log('   결과는 k6 summary 및 Grafana 대시보드에서 확인하세요.');
 }
-

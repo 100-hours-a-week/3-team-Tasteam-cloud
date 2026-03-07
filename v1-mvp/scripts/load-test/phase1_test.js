@@ -29,6 +29,12 @@ import {
     executePersonalJourney,
     executeChatJourney,
     executeWritingJourney,
+    prepareHotspotPools,
+    pickKeyword,
+    pickGroupId,
+    pickSubgroupId,
+    pickChatRoomId,
+    pickRestaurantId,
 } from '../api-tests/shared/scenarios.js';
 
 const SUITE = __ENV.TEST_SUITE || 'full';
@@ -319,6 +325,7 @@ function buildState(data) {
     state.subgroupId = data.subgroupId;
     state.chatRoomId = data.chatRoomId;
     state.keywordIds = data.keywordIds;
+    state.hotspot = data.hotspot || null;
     return state;
 }
 
@@ -328,18 +335,22 @@ export function setup() {
 
     const tokens = batchLogin(USER_POOL);
     if (!tokens || tokens.length === 0) {
-        throw new Error('토큰 발급 실패: auth/token/test 확인 필요');
+        throw new Error('토큰 발급 실패: test/auth/token 확인 필요');
     }
 
     const baseToken = tokens[0];
     const keywordIds = getReviewKeywords(baseToken);
 
     let groupId = null;
+    let groupIds = [];
     const myGroupsRes = getMyGroups(baseToken);
     if (myGroupsRes && myGroupsRes.status === 200) {
         try {
             const items = myGroupsRes.json('data.items') || [];
-            if (items.length > 0) groupId = items[0].id;
+            if (items.length > 0) {
+                groupId = items[0].id;
+                groupIds = items.map((item) => item.id).filter(Boolean);
+            }
         } catch (e) {
             // ignore
         }
@@ -351,6 +362,10 @@ export function setup() {
 
     if (!groupId) {
         throw new Error('필수 그룹 ID 확보 실패: 테스트 중단');
+    }
+
+    if (groupIds.length === 0 && groupId) {
+        groupIds = [groupId];
     }
 
     const subgroupRes = getGroupSubgroups(baseToken, groupId);
@@ -368,8 +383,10 @@ export function setup() {
         throw new Error('필수 채팅방 ID 확보 실패: 테스트 중단');
     }
 
+    const hotspot = prepareHotspotPools(baseToken, groupIds);
+
     console.log(`✅ setup 완료 tokens=${tokens.length}, groupId=${groupId}, subgroupId=${subgroupId}, chatRoomId=${chatRoomId}`);
-    return { tokens, groupId, subgroupId, chatRoomId, keywordIds };
+    return { tokens, groupId, subgroupId, chatRoomId, keywordIds, hotspot };
 }
 
 function postProcess(res) {
@@ -391,7 +408,7 @@ export function smokeScenario(data) {
 export function spikeSearch(data) {
     const state = buildState(data);
     const loc = randomLocation();
-    const res = search(state.token, randomKeyword(), loc);
+    const res = search(state.token, pickKeyword(state), loc);
     if (res && res.status === 200) searchSuccess.add(1);
     postProcess(res);
     sleep(0.2);
@@ -411,10 +428,12 @@ export function spikeMain(data) {
 
 export function spikeGroup(data) {
     const state = buildState(data);
-    const g = getGroupDetail(state.token, state.groupId);
-    const s = getSubgroupDetail(state.token, state.subgroupId);
-    const m = getSubgroupMembers(state.token, state.subgroupId);
-    const r = getSubgroupReviews(state.token, state.subgroupId);
+    const groupId = pickGroupId(state) || state.groupId;
+    const subgroupId = pickSubgroupId(state) || state.subgroupId;
+    const g = getGroupDetail(state.token, groupId);
+    const s = getSubgroupDetail(state.token, subgroupId);
+    const m = getSubgroupMembers(state.token, subgroupId);
+    const r = getSubgroupReviews(state.token, subgroupId);
     [g, s, m, r].forEach((res) => {
         if (res && res.status === 200) readSuccess.add(1);
         postProcess(res);
@@ -424,16 +443,17 @@ export function spikeGroup(data) {
 
 export function spikeChat(data) {
     const state = buildState(data);
-    const messages = getChatMessages(state.token, state.chatRoomId);
+    const chatRoomId = pickChatRoomId(state) || state.chatRoomId;
+    const messages = getChatMessages(state.token, chatRoomId);
     if (messages && messages.response && messages.response.status === 200) readSuccess.add(1);
-    const send = sendChatMessage(state.token, state.chatRoomId, `spike-${Date.now()}`);
+    const send = sendChatMessage(state.token, chatRoomId, `spike-${Date.now()}`);
     if (send && (send.status === 200 || send.status === 201)) writeSuccess.add(1);
 
     let lastMessageId = null;
     if (messages && messages.messages && messages.messages.length > 0) {
         lastMessageId = messages.messages[messages.messages.length - 1].id;
     }
-    const cursor = updateChatReadCursor(state.token, state.chatRoomId, lastMessageId);
+    const cursor = updateChatReadCursor(state.token, chatRoomId, lastMessageId);
     if (cursor && (cursor.status === 200 || cursor.status === 204)) writeSuccess.add(1);
 
     postProcess(messages && messages.response);
@@ -444,10 +464,10 @@ export function spikeChat(data) {
 
 export function spikeWriting(data) {
     const state = buildState(data);
-    const review = createReview(state.token, state.groupId, state.keywordIds);
+    const restaurantId = pickRestaurantId(state);
+    const review = createReview(state.token, state.groupId, state.keywordIds, restaurantId);
     if (review && (review.status === 200 || review.status === 201)) writeSuccess.add(1);
 
-    const restaurantId = 6001;
     const addFav = addFavoriteRestaurant(state.token, restaurantId);
     if (addFav && (addFav.status === 200 || addFav.status === 201 || addFav.status === 409)) writeSuccess.add(1);
 
@@ -474,12 +494,15 @@ export function writeHeavyScenario(data) {
     const pivot = Math.random();
     let res = null;
     if (pivot < 0.4) {
-        res = createReview(state.token, state.groupId, state.keywordIds);
+        const restaurantId = pickRestaurantId(state);
+        res = createReview(state.token, state.groupId, state.keywordIds, restaurantId);
     } else if (pivot < 0.8) {
-        res = sendChatMessage(state.token, state.chatRoomId, `write-heavy-${Date.now()}`);
+        const chatRoomId = pickChatRoomId(state) || state.chatRoomId;
+        res = sendChatMessage(state.token, chatRoomId, `write-heavy-${Date.now()}`);
     } else {
-        const add = addFavoriteRestaurant(state.token, 6001);
-        res = Math.random() < 0.5 ? removeFavoriteRestaurant(state.token, 6001) : add;
+        const restaurantId = pickRestaurantId(state);
+        const add = addFavoriteRestaurant(state.token, restaurantId);
+        res = Math.random() < 0.5 ? removeFavoriteRestaurant(state.token, restaurantId) : add;
     }
 
     if (res && [200, 201, 204, 409].includes(res.status)) writeSuccess.add(1);

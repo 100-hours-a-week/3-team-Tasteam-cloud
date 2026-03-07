@@ -3,6 +3,8 @@ import { randomItem } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js';
 import {
     BASE_URL,
     search,
+    prepareKeywordHotspot,
+    pickKeyword,
 } from './shared/scenarios.js';
 import { logTestStart, SuccessMetrics } from './shared/test-utils.js';
 
@@ -54,6 +56,7 @@ export function setup() {
 
     return {
         tokens: [], // 토큰 없이 진행
+        hotspot: prepareKeywordHotspot(SEARCH_KEYWORDS),
     };
 }
 
@@ -68,7 +71,7 @@ export function searchScenario(data) {
     }
 
     // 랜덤 키워드 선택
-    const keyword = randomItem(SEARCH_KEYWORDS);
+    const keyword = pickKeyword({ hotspot: data.hotspot });
 
     // 검색 요청
     const res = search(token, keyword);
