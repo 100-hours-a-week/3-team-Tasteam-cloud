@@ -14,3 +14,16 @@ INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
 
 echo "[user_data] Instance $INSTANCE_ID started in ${environment} environment"
 echo "[user_data] Region: ${aws_region}, App port: ${app_port}"
+
+# Ensure SSM agent is available for Session Manager access.
+if ! command -v amazon-ssm-agent >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -y || true
+    apt-get install -y amazon-ssm-agent || true
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y amazon-ssm-agent || true
+  fi
+fi
+
+systemctl enable amazon-ssm-agent >/dev/null 2>&1 || true
+systemctl restart amazon-ssm-agent >/dev/null 2>&1 || true
