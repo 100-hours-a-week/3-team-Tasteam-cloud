@@ -45,37 +45,41 @@
 - `redis_errors_count_total`, `redis_eval_latency_*`
 - `up{job="spring|redis|postgres|node"}`
 
-## 3) 추가로 Prometheus에 쏴야 하는 메트릭 (필수)
-아래는 "현재 코드에서 직접 카운터/게이지를 노출하지 않음"이라 추가 계측이 필요한 항목이다.
+## 3) 구현 상태 점검 (2026-03-07 코드 기준)
+아래 항목은 모두 현재 구현에서 Prometheus로 노출된다.
 
-### 3.1 Notification Outbox 상태 게이지
+### 3.1 Notification Outbox 상태 게이지 (구현 완료)
 - `notification_outbox_pending`
 - `notification_outbox_published`
 - `notification_outbox_failed`
 - `notification_outbox_retrying`
 - 라벨: `environment`, `instance`
-- 수집 방식: `NotificationOutboxJdbcRepository` 집계 쿼리 결과를 `Gauge`로 30초~1분 주기 갱신
+- 수집 방식: `NotificationOutboxService.summarize()` 결과를 `Gauge`로 주기 갱신
 
-### 3.2 Notification Consumer 품질
+### 3.2 Notification Consumer 품질 (구현 완료)
 - `notification_consumer_dlq_total{result}`
 - `notification_consumer_process_total{result}`
 - `notification_consumer_process_latency_seconds_*`
 - 라벨: `environment`, `instance`, `result`
 
-### 3.3 Source/Dispatch Outbox 적체 게이지
+### 3.3 Source/Dispatch Outbox 적체 게이지 (구현 완료)
 - `analytics_user_activity_source_outbox_pending`
 - `analytics_user_activity_source_outbox_failed`
 - `analytics_user_activity_dispatch_outbox_pending{target}`
 - `analytics_user_activity_dispatch_outbox_failed{target}`
 - 라벨: `environment`, `instance`, `target`
 
-### 3.4 Replay 배치 결과
+### 3.4 Replay 배치 결과 (구현 완료)
 - `analytics_user_activity_replay_processed_total{result}`
 - `analytics_user_activity_replay_batch_duration_seconds_*`
 
-### 3.5 Async Executor 포화 경보용 메트릭(선택)
-- `executor_queue_utilization{name}` = queued / queue_capacity
-- `executor_rejected_tasks_total{name}`
+### 3.5 Async Executor 포화 경보용 메트릭 (구현 완료)
+- `executor_queue_utilization{executor}` = queued / queue_capacity
+- `executor_rejected_tasks_total{executor}`
+
+### 3.6 추가 계측 후보 (선택)
+- `notification.outbox.oldest.pending.age` (pending 최대 체류 시간)
+- `analytics.user-activity.dispatch.backlog.age` (dispatch backlog 최대 체류 시간)
 
 ## 4) 권장 알람 규칙
 - MQ Consume Fail Rate 급증: `sum(rate(mq_consume_count_total{result="fail"}[5m])) > 0`
