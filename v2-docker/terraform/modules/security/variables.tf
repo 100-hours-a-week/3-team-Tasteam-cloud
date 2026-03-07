@@ -14,6 +14,18 @@ variable "shared_vpc_cidr" {
   default     = null
 }
 
+variable "app_ssh_cidr_blocks" {
+  description = "CIDR blocks allowed to SSH into app SG (Caddy and app instances)"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "app_ssh_source_security_group_ids" {
+  description = "Security group IDs additionally allowed to SSH into app SG"
+  type        = list(string)
+  default     = []
+}
+
 variable "enable_monitoring" {
   description = "Whether to create monitoring security group"
   type        = bool

@@ -33,3 +33,9 @@ variable "v1_migration_principal_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "caddy_admin_ssh_cidrs" {
+  description = "Allowed admin CIDRs for SSH (22/tcp) to Caddy/app SG"
+  type        = list(string)
+  default     = ["211.244.225.166/32"]
+}

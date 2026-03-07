@@ -19,9 +19,11 @@ module "vpc" {
 module "security" {
   source = "../../modules/security"
 
-  environment     = var.environment
-  vpc_id          = module.vpc.vpc_id
-  shared_vpc_cidr = "10.10.0.0/16"
+  environment                       = var.environment
+  vpc_id                            = module.vpc.vpc_id
+  shared_vpc_cidr                   = "10.10.0.0/16"
+  app_ssh_cidr_blocks               = var.caddy_admin_ssh_cidrs
+  app_ssh_source_security_group_ids = [aws_security_group.caddy_jump_source.id]
 }
 
 # ──────────────────────────────────────────────
@@ -533,6 +535,11 @@ resource "aws_iam_role" "ec2_common" {
   })
 }
 
+resource "aws_iam_role_policy_attachment" "ec2_common_ssm_managed_instance_core" {
+  role       = aws_iam_role.ec2_common.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
 resource "aws_iam_role_policy" "ec2_common_analytics_s3" {
   name = "${var.environment}-ec2-analytics-s3-policy"
   role = aws_iam_role.ec2_common.id
@@ -653,6 +660,11 @@ resource "aws_codedeploy_deployment_group" "backend_prod" {
 
   deployment_config_name = "CodeDeployDefault.OneAtATime"
   autoscaling_groups     = [module.asg_spring.asg_name]
+
+  auto_rollback_configuration {
+    enabled = true
+    events  = ["DEPLOYMENT_FAILURE"]
+  }
 
   depends_on = [
     aws_iam_role_policy_attachment.codedeploy_service

@@ -35,9 +35,21 @@ resource "aws_security_group_rule" "app_ssh" {
   from_port         = 22
   to_port           = 22
   protocol          = "tcp"
-  cidr_blocks       = ["0.0.0.0/0"]
+  cidr_blocks       = var.app_ssh_cidr_blocks
   security_group_id = aws_security_group.app.id
   description       = "SSH"
+}
+
+resource "aws_security_group_rule" "app_ssh_from_sg" {
+  for_each = toset(var.app_ssh_source_security_group_ids)
+
+  type                     = "ingress"
+  from_port                = 22
+  to_port                  = 22
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.app.id
+  source_security_group_id = each.value
+  description              = "SSH from allowed source security group"
 }
 
 resource "aws_security_group_rule" "app_http" {

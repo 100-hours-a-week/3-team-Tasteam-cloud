@@ -19,9 +19,10 @@ module "vpc" {
 module "security" {
   source = "../../modules/security"
 
-  environment     = var.environment
-  vpc_id          = module.vpc.vpc_id
-  shared_vpc_cidr = "10.10.0.0/16"
+  environment         = var.environment
+  vpc_id              = module.vpc.vpc_id
+  shared_vpc_cidr     = "10.10.0.0/16"
+  app_ssh_cidr_blocks = var.caddy_admin_ssh_cidrs
 }
 
 # ──────────────────────────────────────────────
@@ -430,6 +431,11 @@ resource "aws_iam_role" "dev_backend_ec2" {
   })
 }
 
+resource "aws_iam_role_policy_attachment" "dev_backend_ec2_ssm_managed_instance_core" {
+  role       = aws_iam_role.dev_backend_ec2.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
 resource "aws_iam_role_policy" "dev_backend_ec2" {
   name = "${var.environment}-backend-ec2-policy"
   role = aws_iam_role.dev_backend_ec2.id
@@ -567,6 +573,11 @@ resource "aws_iam_role" "dev_ec2_common" {
   })
 }
 
+resource "aws_iam_role_policy_attachment" "dev_ec2_common_ssm_managed_instance_core" {
+  role       = aws_iam_role.dev_ec2_common.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
 resource "aws_iam_role_policy" "dev_ec2_common_analytics_s3" {
   name = "${var.environment}-ec2-analytics-s3-policy"
   role = aws_iam_role.dev_ec2_common.id
@@ -637,6 +648,11 @@ resource "aws_codedeploy_deployment_group" "backend_dev" {
   service_role_arn      = aws_iam_role.codedeploy_service.arn
 
   deployment_config_name = "CodeDeployDefault.OneAtATime"
+
+  auto_rollback_configuration {
+    enabled = true
+    events  = ["DEPLOYMENT_FAILURE"]
+  }
 
   ec2_tag_set {
     ec2_tag_filter {
