@@ -34,9 +34,7 @@ resource "aws_service_discovery_service" "this" {
   # Cloud Map custom health를 사용한다.
   # launch 시 기본값은 UNHEALTHY로 등록하고, CodeDeploy ValidateService 성공 후
   # 인스턴스가 자신을 HEALTHY로 올리면 그때부터 DNS 응답에 포함된다.
-  health_check_custom_config {
-    failure_threshold = 1
-  }
+  health_check_custom_config {}
 
   tags = {
     Name = "${var.environment}-cloudmap-svc-${var.service_name}"
