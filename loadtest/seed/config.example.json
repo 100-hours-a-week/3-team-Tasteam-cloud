@@ -87,6 +87,8 @@
   "tuning": {
     "menu_per_category": 4,
     "base_menu_price": 9000,
-    "max_keywords_per_review": 3
+    "max_keywords_per_review": 3,
+    "include_async_log_data": false,
+    "async_log_scale_percent": 30
   }
 }
