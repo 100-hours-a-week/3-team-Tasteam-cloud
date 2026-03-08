@@ -13,7 +13,7 @@ export const options = withQuickRunOptions({
 });
 
 const BASE_URL = __ENV.BASE_URL || 'https://stg.tasteam.kr';
-const TEST_AUTH_TOKEN_PATH = __ENV.TEST_AUTH_TOKEN_PATH || '/api/v1/auth/token/test';
+const TEST_AUTH_TOKEN_PATH = __ENV.TEST_AUTH_TOKEN_PATH || '/api/v1/test/auth/token';
 
 export default function () {
     // 공통 헤더 설정

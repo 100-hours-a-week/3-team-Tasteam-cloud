@@ -3,7 +3,7 @@ import { check, sleep } from 'k6';
 
 // ============ Configuration ============
 export const BASE_URL = __ENV.BASE_URL || 'https://stg.tasteam.kr';
-export const TEST_AUTH_TOKEN_PATH = __ENV.TEST_AUTH_TOKEN_PATH || '/api/v1/auth/token/test';
+export const TEST_AUTH_TOKEN_PATH = __ENV.TEST_AUTH_TOKEN_PATH || '/api/v1/test/auth/token';
 
 // 테스트 계정 정보
 // 테스트 계정 정보

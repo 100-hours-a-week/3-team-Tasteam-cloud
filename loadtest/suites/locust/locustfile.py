@@ -4,7 +4,7 @@ import time
 from locust import HttpUser, task, between
 
 BASE_URL = os.getenv("BASE_URL", "https://stg.tasteam.kr")
-TEST_AUTH_TOKEN_PATH = os.getenv("TEST_AUTH_TOKEN_PATH", "/api/v1/auth/token/test")
+TEST_AUTH_TOKEN_PATH = os.getenv("TEST_AUTH_TOKEN_PATH", "/api/v1/test/auth/token")
 USER_ID_MAX = int(os.getenv("USER_ID_MAX", "1000"))
 TEST_GROUP_CODE = os.getenv("TEST_GROUP_CODE", "LOCAL-1234")
 GROUP_SEARCH_KEYWORDS = [
@@ -33,7 +33,7 @@ class TasteamUser(HttpUser):
             "nickname": f"부하테스트계정{uid}",
         }
 
-        with self.client.post(TEST_AUTH_TOKEN_PATH, json=login_body, name="auth/token/test", catch_response=True) as res:
+        with self.client.post(TEST_AUTH_TOKEN_PATH, json=login_body, name="test/auth/token", catch_response=True) as res:
             if res.status_code == 200:
                 try:
                     self.token = res.json().get("data", {}).get("accessToken")
