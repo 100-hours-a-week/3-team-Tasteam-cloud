@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+# Spring BCryptPasswordEncoder().encode("1234") 로 생성한 고정 해시값
+DEFAULT_GROUP_JOIN_CODE_BCRYPT_HASH = "$2a$10$PDQWS8fFPpIgAIwQY057NeKCd0WCUXAVX421zmYI97zawhlmVK3ki"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "counts": {
@@ -568,6 +570,7 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
     image_optimization_job_count = counts["image_optimization_job_count"]
 
     run_token = content["run_token"]
+    group_join_code_hash_sql = sql_quote(DEFAULT_GROUP_JOIN_CODE_BCRYPT_HASH)
     menu_per_category = tuning["menu_per_category"]
     base_menu_price = tuning["base_menu_price"]
     max_keywords_per_review = tuning["max_keywords_per_review"]
@@ -1207,6 +1210,19 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
         a("FROM tmp_dummy_group g")
         a("CROSS JOIN cfg")
         a("ORDER BY g.seq;")
+        a("")
+
+        a("-- Group auth codes for PASSWORD groups")
+        a("INSERT INTO group_auth_code (id, group_id, code, created_at)")
+        a("SELECT")
+        a("  nextval('group_auth_code_seq'),")
+        a("  g.id,")
+        a(f"  {group_join_code_hash_sql},")
+        a("  NOW()")
+        a("FROM tmp_dummy_group tg")
+        a("JOIN \"group\" g ON g.id = tg.id")
+        a("WHERE g.join_type = 'PASSWORD'")
+        a("ORDER BY tg.seq;")
         a("")
 
     if group_count > 0 and subgroup_per_group > 0:
@@ -3698,19 +3714,11 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
     a("SET member_count = (SELECT COUNT(*) FROM subgroup_member WHERE subgroup_id = 4002 AND deleted_at IS NULL)")
     a("WHERE id = 4002;")
     a("")
-    a("DO $$")
-    a("BEGIN")
-    a("  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto') THEN")
-    a("    RAISE WARNING 'pgcrypto extension not found: group_auth_code for load-test group skipped';")
-    a("    RETURN;")
-    a("  END IF;")
-    a("")
-    a("  DELETE FROM group_auth_code WHERE group_id = 2002;")
+    a("DELETE FROM group_auth_code WHERE group_id = 2002;")
     a(
-        "  INSERT INTO group_auth_code (id, group_id, code, created_at)"
-        " VALUES (nextval('group_auth_code_seq'), 2002, crypt('LOCAL-1234', gen_salt('bf', 12)), NOW());"
+        "INSERT INTO group_auth_code (id, group_id, code, created_at) "
+        f"VALUES (nextval('group_auth_code_seq'), 2002, {group_join_code_hash_sql}, NOW());"
     )
-    a("END $$;")
     a("")
 
     a("COMMIT;")
@@ -3962,19 +3970,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=Path,
-        default=None,
-        help="JSON 설정 파일 경로 (미지정 시 내장 기본값 사용)",
+        default=SCRIPT_DIR / "default_seed_profile.json",
+        help="JSON 설정 파일 경로 (미지정 시 default_seed_profile.json 사용)",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=SCRIPT_DIR / "generated_dummy_seed.sql",
+        default=SCRIPT_DIR.parent / "results" / "generated-seed" / "latest" / "seed.sql",
         help="생성할 seed SQL 파일 경로",
     )
     parser.add_argument(
         "--cleanup-output",
         type=Path,
-        default=None,
+        default=SCRIPT_DIR.parent / "results" / "generated-seed" / "latest" / "cleanup.sql",
         help="생성할 cleanup SQL 파일 경로 (선택)",
     )
     parser.add_argument(
