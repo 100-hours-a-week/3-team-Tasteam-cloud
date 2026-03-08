@@ -1,12 +1,13 @@
 #!/bin/bash
 #
-# 복구 테스트 실행 스크립트
+# 스트레스 테스트 실행 스크립트
 #
 # 사용법:
-#   ./run-recovery.sh [--reset-db] [--no-prometheus]
+#   ./run-stress.sh [--reset-db] [--no-prometheus]
 #
 # 환경변수:
-#   BASE_URL  - https://stg.tasteam.kr (기본값)
+#   TEST_TYPE  - read-heavy(기본값) | write-heavy | search-only
+#   BASE_URL   - https://stg.tasteam.kr (기본값)
 #
 # 옵션:
 #   --reset-db       테스트 전 개발 DB를 초기화합니다.
@@ -15,7 +16,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DB_RESET_SCRIPT="${SCRIPT_DIR}/../db-reset/reset-dev-db.sh"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+DB_RESET_SCRIPT="${REPO_ROOT}/v1-mvp/scripts/db-reset/reset-dev-db.sh"
 
 export K6_PROMETHEUS_RW_SERVER_URL="${K6_PROMETHEUS_RW_SERVER_URL:-https://prom-dev.tasteam.kr/api/v1/write}"
 export K6_PROMETHEUS_RW_USERNAME="${K6_PROMETHEUS_RW_USERNAME:-tasteam}"
@@ -23,6 +25,7 @@ export K6_PROMETHEUS_RW_PASSWORD="${K6_PROMETHEUS_RW_PASSWORD:-tasteam-k6-metric
 export K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM="${K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM:-true}"
 
 export BASE_URL="${BASE_URL:-https://stg.tasteam.kr}"
+export TEST_TYPE="${TEST_TYPE:-read-heavy}"
 
 RESET_DB=false
 USE_PROMETHEUS=true
@@ -55,12 +58,8 @@ if [[ "$RESET_DB" == "true" ]]; then
 fi
 
 echo ""
-echo "복구 테스트 시작..."
-echo "   Phase 1 (3m): 50→500 VU 스파이크"
-echo "   Phase 2 (1m): 500 VU 유지"
-echo "   Phase 3 (2m): 500→50 VU 램프다운"
-echo "   Phase 4 (10m): 50 VU 저부하 복구 관찰"
-echo "   스크립트: ${SCRIPT_DIR}/recovery_test.js"
+echo "스트레스 테스트 시작... [TEST_TYPE=${TEST_TYPE}]"
+echo "   스크립트: ${SCRIPT_DIR}/stress_test.js"
 echo ""
 
 if [[ "$USE_PROMETHEUS" == "true" ]]; then
@@ -73,17 +72,19 @@ fi
 
 echo ""
 
-TEST_ID="recovery-$(date +%Y%m%d-%H%M%S)"
+TEST_ID="stress-${TEST_TYPE}-$(date +%Y%m%d-%H%M%S)"
 echo "Test ID: $TEST_ID"
 echo ""
 
 cd "$SCRIPT_DIR"
 k6 run $K6_OUTPUT_ARG \
   --tag testid=$TEST_ID \
+  --tag test_type=${TEST_TYPE} \
   -e TEST_ID=$TEST_ID \
-  recovery_test.js
+  -e TEST_TYPE=${TEST_TYPE} \
+  stress_test.js
 
 echo ""
-echo "복구 테스트 완료!"
-echo "   - Phase 4 구간의 p95 추이를 Grafana에서 확인하세요."
-echo "   - 복구 완료 기준: read p95 < 1.5s, 에러율 < 0.1%"
+echo "스트레스 테스트 완료!"
+echo "   - 결과 요약은 위 출력을 확인하세요."
+echo "   - Prometheus 출력 시 Grafana 대시보드에서 상세 분석 가능합니다."

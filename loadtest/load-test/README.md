@@ -1,6 +1,6 @@
 # Load Test Scripts
 
-1차(병목 탐색) + 2차(장기 Soak) + Cache/Kafka OFF/ON 비교를 위한 스크립트 모음입니다.
+루트 `loadtest/load-test`에서 관리하는 1차(병목 탐색) + 2차(장기 Soak) + Cache/Kafka OFF/ON 비교 스크립트 모음입니다.
 
 ## 구성
 
@@ -22,7 +22,7 @@
 ## 빠른 실행
 
 ```bash
-cd v1-mvp/scripts/load-test
+cd loadtest/load-test
 
 # 1차 병목 탐색 (full)
 BASE_URL=https://stg.tasteam.kr ./run-phase1-off.sh --suite full
@@ -54,7 +54,7 @@ BASE_URL=https://stg.tasteam.kr ./run-long-48h-on.sh
 ## Locust 실행
 
 ```bash
-cd v1-mvp/scripts/load-test
+cd loadtest/load-test
 BASE_URL=https://stg.tasteam.kr USERS=1000 SPAWN_RATE=50 RUN_TIME=35m ./run-locust.sh
 ```
 

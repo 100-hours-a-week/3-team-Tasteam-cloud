@@ -16,7 +16,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DB_RESET_SCRIPT="${SCRIPT_DIR}/../db-reset/reset-dev-db.sh"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+DB_RESET_SCRIPT="${REPO_ROOT}/v1-mvp/scripts/db-reset/reset-dev-db.sh"
 
 export K6_PROMETHEUS_RW_SERVER_URL="${K6_PROMETHEUS_RW_SERVER_URL:-https://prom-dev.tasteam.kr/api/v1/write}"
 export K6_PROMETHEUS_RW_USERNAME="${K6_PROMETHEUS_RW_USERNAME:-tasteam}"

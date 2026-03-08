@@ -1,6 +1,15 @@
 # API Tests
 
-k6 기반 API 테스트 스크립트 모음입니다.
+루트 `loadtest/api-tests`에서 관리하는 k6 기반 API 테스트 스크립트 모음입니다.
+
+## 빠른 실행
+
+```bash
+cd loadtest/api-tests
+
+./run-breakpoint.sh
+./run-search-stress.sh
+```
 
 ## 📁 구조
 
@@ -173,5 +182,5 @@ K6_PROMETHEUS_RW_SERVER_URL="http://other-prom:9090/api/v1/write" ./run-breakpoi
 ./run-breakpoint.sh --reset-db
 
 # 수동 초기화
-../db-reset/reset-dev-db.sh
+../../v1-mvp/scripts/db-reset/reset-dev-db.sh
 ```
