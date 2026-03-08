@@ -19,21 +19,22 @@ import { sleep } from 'k6';
 import {
     BASE_URL,
     createState,
-    login,
     batchLogin,
-    joinGroup,
     getReviewKeywords,
     executeReadScenario,
     executeWriteScenario,
     prepareHotspotPools,
-} from './shared/scenarios.js';
-import { logTestStart, SuccessMetrics } from './shared/test-utils.js';
+    resolveGroupContext,
+} from '../../shared/scenarios.js';
+import { withQuickRunOptions } from '../../shared/quick-run.js';
+import { logTestStart, SuccessMetrics } from '../../shared/test-utils.js';
 
 // ============ Custom Metrics ============
 const metrics = new SuccessMetrics(['read_success_count', 'write_success_count']);
 
 // ============ Test Options ============
-export const options = {
+export const options = withQuickRunOptions({
+    setupTimeout: '5m',
     scenarios: {
         // 조회 시나리오 (80% 비율)
         read_scenario: {
@@ -72,7 +73,7 @@ export const options = {
         'http_req_duration{scenario:write_scenario}': ['p(95)<3000'], // 쓰기: p95 < 3초
         'http_req_failed': ['rate<0.001'],                             // 에러율 < 0.1%
     },
-};
+});
 
 // ============ Setup ============
 export function setup() {
@@ -87,13 +88,13 @@ export function setup() {
         return null; // 모든 VU 중단
     }
 
-    // 첫 번째 계정으로 그룹 가입 (대표)
-    // 실제로는 각 사용자가 가입해야 할 수도 있지만, 
-    // 현재 시나리오상 그룹 조회/리뷰 작성에 그룹 가입 여부가 필수라면 
-    // 여기서는 대표 그룹 ID만 확보하고 진행하거나, 필요시 반복문으로 가입 처리
-    // (기존 코드 유지: 하나의 그룹 ID 사용)
     const baseToken = tokens[0];
-    const groupId = joinGroup(baseToken);
+    const groupContext = resolveGroupContext(baseToken);
+    const groupId = groupContext.groupId;
+
+    if (!groupId) {
+        throw new Error('브레이크포인트 테스트에 필요한 그룹 컨텍스트를 확보하지 못했습니다. 내 그룹 또는 GROUP_SEARCH_KEYWORDS/TEST_GROUP_CODE 설정을 확인하세요.');
+    }
 
     // 리뷰 키워드 조회
     const keywordIds = getReviewKeywords(baseToken);
@@ -104,7 +105,7 @@ export function setup() {
         tokens, // 배열 전달
         groupId,
         keywordIds,
-        hotspot: prepareHotspotPools(baseToken, groupId ? [groupId] : []),
+        hotspot: prepareHotspotPools(baseToken, groupContext.groupIds),
     };
 }
 

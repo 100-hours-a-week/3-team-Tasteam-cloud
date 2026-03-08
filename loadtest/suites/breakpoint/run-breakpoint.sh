@@ -20,7 +20,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DB_RESET_SCRIPT="${SCRIPT_DIR}/../db-reset/reset-dev-db.sh"
+REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+DB_RESET_SCRIPT="${REPO_ROOT}/v1-mvp/scripts/db-reset/reset-dev-db.sh"
 
 # ============ 기본값 설정 ============
 # 환경변수가 설정되어 있지 않으면 기본값 사용

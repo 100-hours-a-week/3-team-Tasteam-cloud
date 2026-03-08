@@ -5,13 +5,14 @@ import {
     search,
     prepareKeywordHotspot,
     pickKeyword,
-} from './shared/scenarios.js';
-import { logTestStart, SuccessMetrics } from './shared/test-utils.js';
+} from '../../shared/scenarios.js';
+import { withQuickRunOptions } from '../../shared/quick-run.js';
+import { logTestStart, SuccessMetrics } from '../../shared/test-utils.js';
 
 // ============ Test Options ============
 const metrics = new SuccessMetrics(['search_success_count']);
 
-export const options = {
+export const options = withQuickRunOptions({
     scenarios: {
         search_stress: {
             executor: 'ramping-arrival-rate',
@@ -34,7 +35,7 @@ export const options = {
         'http_req_duration': ['p(95)<2000'], // 2s timeout for stress
         'http_req_failed': ['rate<0.05'],    // Allow 5% failure under stress
     },
-};
+});
 
 // ============ Test Data ============
 const SEARCH_KEYWORDS = [

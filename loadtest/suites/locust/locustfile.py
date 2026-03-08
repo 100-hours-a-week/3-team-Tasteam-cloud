@@ -4,7 +4,14 @@ import time
 from locust import HttpUser, task, between
 
 BASE_URL = os.getenv("BASE_URL", "https://stg.tasteam.kr")
+TEST_AUTH_TOKEN_PATH = os.getenv("TEST_AUTH_TOKEN_PATH", "/api/v1/auth/token/test")
 USER_ID_MAX = int(os.getenv("USER_ID_MAX", "1000"))
+TEST_GROUP_CODE = os.getenv("TEST_GROUP_CODE", "LOCAL-1234")
+GROUP_SEARCH_KEYWORDS = [
+    keyword.strip()
+    for keyword in os.getenv("GROUP_SEARCH_KEYWORDS", "테스트").split(",")
+    if keyword.strip()
+]
 
 SEARCH_KEYWORDS = ["파스타", "치킨", "피자", "카페", "강남", "성수", "점심", "회식", "가성비"]
 
@@ -26,7 +33,7 @@ class TasteamUser(HttpUser):
             "nickname": f"부하테스트계정{uid}",
         }
 
-        with self.client.post("/api/v1/test/auth/token", json=login_body, name="test/auth/token", catch_response=True) as res:
+        with self.client.post(TEST_AUTH_TOKEN_PATH, json=login_body, name="auth/token/test", catch_response=True) as res:
             if res.status_code == 200:
                 try:
                     self.token = res.json().get("data", {}).get("accessToken")
@@ -55,17 +62,26 @@ class TasteamUser(HttpUser):
         r = self.client.get("/api/v1/members/me/groups", headers=headers, name="members/me/groups")
         if r.status_code == 200:
             try:
-                items = r.json().get("data", {}).get("items", [])
+                data = r.json().get("data", {})
+                items = data.get("items", []) if isinstance(data, dict) else data
                 if items:
                     self.group_id = items[0].get("id")
             except Exception:
                 pass
 
         if not self.group_id:
-            join_body = {"code": "LOCAL-1234"}
-            j = self.client.post("/api/v1/groups/2002/password-authentications", json=join_body, headers=headers, name="groups/join")
-            if j.status_code == 201:
-                self.group_id = 2002
+            candidate_group_ids = self._search_group_candidates(headers)
+            for group_id in candidate_group_ids:
+                join_body = {"code": TEST_GROUP_CODE}
+                j = self.client.post(
+                    f"/api/v1/groups/{group_id}/password-authentications",
+                    json=join_body,
+                    headers=headers,
+                    name="groups/join",
+                )
+                if j.status_code == 201:
+                    self.group_id = group_id
+                    break
 
         if not self.group_id:
             return
@@ -86,6 +102,25 @@ class TasteamUser(HttpUser):
                     self.chat_room_id = cr.json().get("data", {}).get("chatRoomId")
                 except Exception:
                     pass
+
+    def _search_group_candidates(self, headers):
+        candidate_group_ids = []
+        for keyword in GROUP_SEARCH_KEYWORDS:
+            res = self.client.post(f"/api/v1/search?keyword={keyword}", headers=headers, name="groups/search")
+            if res.status_code != 200:
+                continue
+
+            try:
+                groups = res.json().get("data", {}).get("groups", [])
+            except Exception:
+                continue
+
+            for group in groups:
+                group_id = group.get("groupId") or group.get("id")
+                if group_id and group_id not in candidate_group_ids:
+                    candidate_group_ids.append(group_id)
+
+        return candidate_group_ids
 
     @task(28)
     def browsing_journey(self):

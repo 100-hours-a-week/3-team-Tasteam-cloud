@@ -25,11 +25,7 @@ import {
     BASE_URL,
     createState,
     batchLogin,
-    joinGroup,
-    getMyGroups,
     getReviewKeywords,
-    getGroupSubgroups,
-    getSubgroupChatRoom,
     executeBrowsingJourney,
     executeSearchingJourney,
     executeGroupJourney,
@@ -37,11 +33,15 @@ import {
     executePersonalJourney,
     executeChatJourney,
     executeWritingJourney,
-} from './shared/scenarios.js';
-import { logTestStart, createJourneyMetrics } from './shared/test-utils.js';
+    resolveGroupContext,
+    resolveSubgroupChatContext,
+} from '../../shared/scenarios.js';
+import { withQuickRunOptions } from '../../shared/quick-run.js';
+import { logTestStart, createJourneyMetrics } from '../../shared/test-utils.js';
 
 const SOAK_MODE  = __ENV.SOAK_MODE  || '24h';
 const CACHE_MODE = __ENV.CACHE_MODE || 'on';
+const USER_POOL = Number(__ENV.USER_POOL || '100');
 
 const metrics = createJourneyMetrics();
 
@@ -86,7 +86,8 @@ const SOAK_STAGES = {
     ],
 };
 
-export const options = {
+export const options = withQuickRunOptions({
+    setupTimeout: '5m',
     scenarios: {
         soak: {
             executor: 'ramping-vus',
@@ -101,7 +102,7 @@ export const options = {
         'http_req_duration{type:read}':  ['p(95)<1000'],
         'http_req_duration{type:write}': ['p(95)<3000'],
     },
-};
+});
 
 // ============ Setup ============
 export function setup() {
@@ -112,7 +113,7 @@ export function setup() {
     console.log(`   모드: ${mode}`);
     console.log(`   판정 기준: 30분 롤링 에러율 ≤ 0.3%, read p95 < 1s`);
 
-    const tokens = batchLogin(100);
+    const tokens = batchLogin(USER_POOL);
     if (!tokens || tokens.length === 0) {
         console.error('❌ 로그인 실패 - 테스트 중단');
         return null;
@@ -121,28 +122,21 @@ export function setup() {
     const baseToken = tokens[0];
     const keywordIds = getReviewKeywords(baseToken);
 
-    let groupId = null;
-    const myGroupsRes = getMyGroups(baseToken);
-    if (myGroupsRes && myGroupsRes.status === 200) {
-        try {
-            const items = myGroupsRes.json('data.items');
-            if (items && items.length > 0) groupId = items[0].id;
-        } catch (e) { /* ignore */ }
-    }
-    if (!groupId) groupId = joinGroup(baseToken);
+    const groupContext = resolveGroupContext(baseToken);
+    const subgroupContext = resolveSubgroupChatContext(baseToken, groupContext.groupId);
 
-    const subgroupsRes = getGroupSubgroups(baseToken, groupId);
-    const subgroupId = (subgroupsRes && subgroupsRes.items && subgroupsRes.items.length > 0)
-        ? subgroupsRes.items[0].subgroupId : null;
-
-    let chatRoomId = null;
-    if (subgroupId) {
-        const chatRoomRes = getSubgroupChatRoom(baseToken, subgroupId);
-        chatRoomId = (chatRoomRes && chatRoomRes.chatRoomId) || null;
+    if (!groupContext.groupId) {
+        console.warn('⚠️ 그룹 컨텍스트를 확보하지 못해 장기 소크 테스트의 write/group 커버리지가 줄어듭니다.');
     }
 
-    console.log(`✅ Setup 완료: tokens=${tokens.length}개, groupId=${groupId}, subgroupId=${subgroupId}, chatRoomId=${chatRoomId}`);
-    return { tokens, groupId, subgroupId, chatRoomId, keywordIds };
+    console.log(`✅ Setup 완료: tokens=${tokens.length}개, groupId=${groupContext.groupId}, subgroupId=${subgroupContext.subgroupId}, chatRoomId=${subgroupContext.chatRoomId}`);
+    return {
+        tokens,
+        groupId: groupContext.groupId,
+        subgroupId: subgroupContext.subgroupId,
+        chatRoomId: subgroupContext.chatRoomId,
+        keywordIds,
+    };
 }
 
 // ============ Main VU Function ============

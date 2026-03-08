@@ -5,10 +5,6 @@ import {
     batchLogin,
     createState,
     getReviewKeywords,
-    joinGroup,
-    getMyGroups,
-    getGroupSubgroups,
-    getSubgroupChatRoom,
     getHomePage,
     getRestaurantListByLocation,
     getGroupDetail,
@@ -35,7 +31,10 @@ import {
     pickSubgroupId,
     pickChatRoomId,
     pickRestaurantId,
-} from '../api-tests/shared/scenarios.js';
+    resolveGroupContext,
+    resolveSubgroupChatContext,
+} from '../../shared/scenarios.js';
+import { withQuickRunOptions } from '../../shared/quick-run.js';
 
 const SUITE = __ENV.TEST_SUITE || 'full';
 const CACHE_MODE = __ENV.CACHE_MODE || 'off';
@@ -277,7 +276,8 @@ function buildOptionsBySuite() {
     };
 }
 
-export const options = {
+export const options = withQuickRunOptions({
+    setupTimeout: '5m',
     scenarios: buildOptionsBySuite(),
     thresholds: {
         http_req_failed: ['rate<0.01'],
@@ -316,7 +316,7 @@ export const options = {
             { threshold: 'p(99)<15000', abortOnFail: true, delayAbortEval: '30s' },
         ],
     },
-};
+});
 
 function buildState(data) {
     const state = createState();
@@ -335,55 +335,32 @@ export function setup() {
 
     const tokens = batchLogin(USER_POOL);
     if (!tokens || tokens.length === 0) {
-        throw new Error('토큰 발급 실패: test/auth/token 확인 필요');
+        throw new Error('토큰 발급 실패: 테스트 토큰 API 확인 필요');
     }
 
     const baseToken = tokens[0];
     const keywordIds = getReviewKeywords(baseToken);
 
-    let groupId = null;
-    let groupIds = [];
-    const myGroupsRes = getMyGroups(baseToken);
-    if (myGroupsRes && myGroupsRes.status === 200) {
-        try {
-            const items = myGroupsRes.json('data.items') || [];
-            if (items.length > 0) {
-                groupId = items[0].id;
-                groupIds = items.map((item) => item.id).filter(Boolean);
-            }
-        } catch (e) {
-            // ignore
-        }
-    }
+    const groupContext = resolveGroupContext(baseToken);
+    const groupId = groupContext.groupId;
 
     if (!groupId) {
-        groupId = joinGroup(baseToken);
+        throw new Error('필수 그룹 ID 확보 실패: 내 그룹이 비어 있고 GROUP_SEARCH_KEYWORDS 검색 결과 가입도 실패했습니다.');
     }
 
-    if (!groupId) {
-        throw new Error('필수 그룹 ID 확보 실패: 테스트 중단');
-    }
-
-    if (groupIds.length === 0 && groupId) {
-        groupIds = [groupId];
-    }
-
-    const subgroupRes = getGroupSubgroups(baseToken, groupId);
-    const subgroupId = subgroupRes && subgroupRes.items && subgroupRes.items.length > 0
-        ? subgroupRes.items[0].subgroupId
-        : null;
+    const subgroupContext = resolveSubgroupChatContext(baseToken, groupId);
+    const subgroupId = subgroupContext.subgroupId;
 
     if (!subgroupId) {
         throw new Error('필수 서브그룹 ID 확보 실패: 테스트 중단');
     }
 
-    const chatRoomRes = getSubgroupChatRoom(baseToken, subgroupId);
-    const chatRoomId = (chatRoomRes && chatRoomRes.chatRoomId) || null;
+    const chatRoomId = subgroupContext.chatRoomId;
     if (!chatRoomId) {
         throw new Error('필수 채팅방 ID 확보 실패: 테스트 중단');
     }
 
-    const hotspot = prepareHotspotPools(baseToken, groupIds);
+    const hotspot = prepareHotspotPools(baseToken, groupContext.groupIds);
 
     console.log(`✅ setup 완료 tokens=${tokens.length}, groupId=${groupId}, subgroupId=${subgroupId}, chatRoomId=${chatRoomId}`);
     return { tokens, groupId, subgroupId, chatRoomId, keywordIds, hotspot };
