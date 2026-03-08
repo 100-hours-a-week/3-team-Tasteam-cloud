@@ -6,6 +6,7 @@
 
 - [`shared/`](/Users/devon.woo/Workspace/Tasteam/3-team-Tasteam-cloud/loadtest/shared): k6 공통 시나리오, 메트릭 유틸리티
 - [`suites/`](/Users/devon.woo/Workspace/Tasteam/3-team-Tasteam-cloud/loadtest/suites): 실행 가능한 부하테스트 단위
+- [`seed/`](/Users/devon.woo/Workspace/Tasteam/3-team-Tasteam-cloud/loadtest/seed): 부하테스트용 더미 데이터 생성 및 DB 주입 자산
 - [`loadtest/.envrc`](/Users/devon.woo/Workspace/Tasteam/3-team-Tasteam-cloud/loadtest/.envrc): 공통 환경변수 예시
 
 ## 어떤 테스트를 써야 하나
@@ -26,9 +27,16 @@
 
 ## 사용 규칙
 
-- 각 폴더 안에는 실행 스크립트, 엔트리 테스트 스크립트, 해당 테스트 설명용 `README.md`만 둡니다.
+- suite 폴더 안에는 실행 스크립트, 엔트리 테스트 스크립트, 해당 테스트 설명용 `README.md`만 둡니다.
 - 공통 함수는 [`shared/`](/Users/devon.woo/Workspace/Tasteam/3-team-Tasteam-cloud/loadtest/shared)에서만 관리합니다.
 - 새 테스트를 추가할 때도 `suites/<suite-name>/` 아래에 넣고, 반드시 폴더별 `README.md`를 함께 작성합니다.
+- 시드/SQL 자산은 [`seed/`](/Users/devon.woo/Workspace/Tasteam/3-team-Tasteam-cloud/loadtest/seed)에서만 관리합니다.
+
+## 데이터 시드
+
+- 로그인 기반 suite를 돌리기 전에 [`seed/`](/Users/devon.woo/Workspace/Tasteam/3-team-Tasteam-cloud/loadtest/seed)의 SQL 생성기 또는 사전 생성 SQL로 테스트 계정/그룹 데이터를 주입합니다.
+- 기본 seed에는 `test-user-001` 계정군, 그룹 `2002`, 서브그룹 `4002`, 채팅방 bootstrap이 포함됩니다.
+- DB 정리까지 필요하면 `generated_dummy_cleanup.sql`을 함께 생성하거나 사용합니다.
 
 ## 공통 환경변수
 
