@@ -12,18 +12,27 @@
 - 실행 시간: 10초
 - 부하: 1 VU
 - 그룹, 음식점, 리뷰 키워드 같은 시드 데이터가 있어야 의미 있게 동작합니다.
+- 실패한 check가 있으면 threshold 위반으로 비정상 종료됩니다.
 
 ## 전제조건
 
 - `POST /api/v1/test/auth/token` 동작
-- 테스트 그룹 `2002 / LOCAL-1234` 유효
-- 테스트 음식점 `6001` 유효
+- `GROUP_SEARCH_KEYWORDS`로 찾은 그룹 중 적어도 하나에서 `TEST_GROUP_CODE`가 유효
+- 테스트 음식점 `TEST_RESTAURANT_ID` 또는 조회 가능한 음식점 데이터 유효
+- smoke는 그룹 가입 응답 `201`을 기대합니다.
 
 ## 실행
 
 ```bash
 cd loadtest/suites/smoke
 ./run-smoke.sh
+```
+
+환경변수 예시:
+
+```bash
+cd loadtest/suites/smoke
+GROUP_SEARCH_KEYWORDS=테스트 TEST_GROUP_CODE=LOCAL-1234 ./run-smoke.sh
 ```
 
 직접 실행도 가능합니다.

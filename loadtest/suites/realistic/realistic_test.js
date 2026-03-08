@@ -23,11 +23,7 @@ import {
     BASE_URL,
     createState,
     batchLogin,
-    joinGroup,
-    getMyGroups,
     getReviewKeywords,
-    getGroupSubgroups,
-    getSubgroupChatRoom,
     executeBrowsingJourney,
     executeSearchingJourney,
     executeGroupJourney,
@@ -36,11 +32,14 @@ import {
     executeChatJourney,
     executeWritingJourney,
     prepareHotspotPools,
+    resolveGroupContext,
+    resolveSubgroupChatContext,
 } from '../../shared/scenarios.js';
 import { logTestStart, createJourneyMetrics } from '../../shared/test-utils.js';
 
 // ============ Custom Metrics ============
 const metrics = createJourneyMetrics();
+const USER_POOL = Number(__ENV.USER_POOL || '100');
 
 // ============ Journey 선택 (가중치 기반) ============
 const JOURNEYS = [
@@ -66,6 +65,7 @@ function selectJourney() {
 
 // ============ Test Options ============
 export const options = {
+    setupTimeout: '5m',
     scenarios: {
         realistic: {
             executor: 'ramping-vus',
@@ -98,7 +98,7 @@ export function setup() {
     console.log('   VU 범위: 100 ~ 1000 (ramping-vus)');
     console.log('   총 실행 시간: ~42분');
 
-    const tokens = batchLogin(100);
+    const tokens = batchLogin(USER_POOL);
     if (!tokens || tokens.length === 0) {
         console.error('❌ 로그인 실패 - 테스트 중단');
         return null;
@@ -107,47 +107,24 @@ export function setup() {
     const baseToken = tokens[0];
     const keywordIds = getReviewKeywords(baseToken);
 
-    // 1. 기존 그룹 조회 (로컬 DB 상태 무관하게 동작)
-    let groupId = null;
-    let groupIds = [];
-    const myGroupsRes = getMyGroups(baseToken);
-    if (myGroupsRes && myGroupsRes.status === 200) {
-        try {
-            const items = myGroupsRes.json('data.items');
-            if (items && items.length > 0) {
-                groupId = items[0].id;
-                groupIds = items.map((item) => item.id).filter(Boolean);
-            }
-        } catch (e) { /* ignore */ }
+    const groupContext = resolveGroupContext(baseToken);
+    const subgroupContext = resolveSubgroupChatContext(baseToken, groupContext.groupId);
+    const hotspot = prepareHotspotPools(baseToken, groupContext.groupIds);
+
+    if (!groupContext.groupId) {
+        console.warn('⚠️ 그룹 컨텍스트를 확보하지 못해 group/subgroup/chat/write 커버리지가 줄어듭니다.');
     }
 
-    // 2. 속한 그룹 없으면 joinGroup 시도 (실패해도 null로 진행)
-    if (!groupId) {
-        groupId = joinGroup(baseToken);
-    }
+    console.log(`✅ Setup 완료: tokens=${tokens.length}개, groupId=${groupContext.groupId}, subgroupId=${subgroupContext.subgroupId}, chatRoomId=${subgroupContext.chatRoomId}, keywords=${keywordIds.length}개`);
 
-    if (groupIds.length === 0 && groupId) {
-        groupIds = [groupId];
-    }
-
-    // subgroupId 획득
-    const subgroupsRes = getGroupSubgroups(baseToken, groupId);
-    const subgroupId = (subgroupsRes && subgroupsRes.items && subgroupsRes.items.length > 0)
-        ? subgroupsRes.items[0].subgroupId
-        : null;
-
-    // chatRoomId 획득
-    let chatRoomId = null;
-    if (subgroupId) {
-        const chatRoomRes = getSubgroupChatRoom(baseToken, subgroupId);
-        chatRoomId = (chatRoomRes && chatRoomRes.chatRoomId) || null;
-    }
-
-    const hotspot = prepareHotspotPools(baseToken, groupIds);
-
-    console.log(`✅ Setup 완료: tokens=${tokens.length}개, groupId=${groupId}, subgroupId=${subgroupId}, chatRoomId=${chatRoomId}, keywords=${keywordIds.length}개`);
-
-    return { tokens, groupId, subgroupId, chatRoomId, keywordIds, hotspot };
+    return {
+        tokens,
+        groupId: groupContext.groupId,
+        subgroupId: subgroupContext.subgroupId,
+        chatRoomId: subgroupContext.chatRoomId,
+        keywordIds,
+        hotspot,
+    };
 }
 
 // ============ Main VU Function ============

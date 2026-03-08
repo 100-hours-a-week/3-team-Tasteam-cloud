@@ -21,6 +21,7 @@
 
 - 테스트 계정 로그인 가능
 - 그룹, 서브그룹, 채팅방 데이터가 반드시 확보되어야 합니다.
+- `GROUP_SEARCH_KEYWORDS`로 찾은 그룹 중 적어도 하나에서 `TEST_GROUP_CODE`가 유효해야 합니다.
 - 필수 데이터가 없으면 `setup()`에서 즉시 중단됩니다.
 
 ## 실행
@@ -28,6 +29,13 @@
 ```bash
 cd loadtest/suites/phase1
 ./run-phase1-off.sh --suite full --no-prometheus
+```
+
+환경변수 예시:
+
+```bash
+cd loadtest/suites/phase1
+GROUP_SEARCH_KEYWORDS=테스트 TEST_GROUP_CODE=LOCAL-1234 USER_POOL=100 ./run-phase1-off.sh --suite full --no-prometheus
 ```
 
 Cache/Kafka 비교:

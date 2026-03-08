@@ -30,6 +30,18 @@
 - 공통 함수는 [`shared/`](/Users/devon.woo/Workspace/Tasteam/3-team-Tasteam-cloud/loadtest/shared)에서만 관리합니다.
 - 새 테스트를 추가할 때도 `suites/<suite-name>/` 아래에 넣고, 반드시 폴더별 `README.md`를 함께 작성합니다.
 
+## 공통 환경변수
+
+- `BASE_URL`: 기본 대상 서버
+- `TEST_GROUP_CODE`: 그룹 가입 시도에 사용하는 비밀번호/코드
+- `GROUP_SEARCH_KEYWORDS`: 가입 후보 그룹을 찾을 검색 키워드 목록
+- `TEST_GROUP_ID`: 고정 그룹 직접 가입이 필요한 예외 스크립트용 식별자
+- `TEST_RESTAURANT_ID`: 리뷰 작성 fallback 음식점 ID
+- `USER_POOL`: 로그인에 사용할 테스트 계정 수
+
+대부분의 suite는 `내 그룹 조회 -> 없으면 그룹 검색 -> 검색 결과 그룹에 TEST_GROUP_CODE로 가입 시도` 흐름을 사용합니다.
+필수 그룹 컨텍스트가 필요한 suite는 위 값이 맞지 않으면 `setup()`에서 즉시 중단되도록 fail-fast 동작을 사용합니다.
+
 ## 예시
 
 ```bash

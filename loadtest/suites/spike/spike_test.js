@@ -25,10 +25,7 @@ import {
     BASE_URL,
     createState,
     batchLogin,
-    joinGroup,
     getReviewKeywords,
-    getGroupSubgroups,
-    getSubgroupChatRoom,
     getHomePage,
     getFoodCategories,
     getRestaurantListByLocation,
@@ -44,6 +41,8 @@ import {
     sendChatMessage,
     updateChatReadCursor,
     createReview,
+    resolveGroupContext,
+    resolveSubgroupChatContext,
 } from '../../shared/scenarios.js';
 import { logTestStart, SuccessMetrics } from '../../shared/test-utils.js';
 
@@ -155,7 +154,10 @@ const SCENARIO_OPTIONS = {
     },
 };
 
-export const options = SCENARIO_OPTIONS[SPIKE_TARGET] || SCENARIO_OPTIONS['search'];
+export const options = {
+    setupTimeout: '5m',
+    ...(SCENARIO_OPTIONS[SPIKE_TARGET] || SCENARIO_OPTIONS['search']),
+};
 
 // ============ Setup ============
 export function setup() {
@@ -170,22 +172,25 @@ export function setup() {
 
     const baseToken = tokens[0];
     const keywordIds = getReviewKeywords(baseToken);
-    const groupId = joinGroup(baseToken);
+    const groupContext = resolveGroupContext(baseToken);
+    const subgroupContext = resolveSubgroupChatContext(baseToken, groupContext.groupId);
 
-    let subgroupId = null;
-    let chatRoomId = null;
-    if (groupId) {
-        const subgroupsRes = getGroupSubgroups(baseToken, groupId);
-        subgroupId = (subgroupsRes && subgroupsRes.items && subgroupsRes.items.length > 0)
-            ? subgroupsRes.items[0].subgroupId : null;
-        if (subgroupId) {
-            const chatRoomRes = getSubgroupChatRoom(baseToken, subgroupId);
-            chatRoomId = (chatRoomRes && chatRoomRes.chatRoomId) || null;
-        }
+    if (['group', 'chat', 'write'].includes(SPIKE_TARGET) && !groupContext.groupId) {
+        throw new Error(`${SPIKE_TARGET} 스파이크 테스트에 필요한 그룹 컨텍스트를 확보하지 못했습니다. 내 그룹 또는 GROUP_SEARCH_KEYWORDS/TEST_GROUP_CODE 설정을 확인하세요.`);
     }
 
-    console.log(`✅ Setup 완료: tokens=${tokens.length}개, groupId=${groupId}, subgroupId=${subgroupId}, chatRoomId=${chatRoomId}`);
-    return { tokens, groupId, subgroupId, chatRoomId, keywordIds };
+    if (SPIKE_TARGET === 'chat' && !subgroupContext.chatRoomId) {
+        throw new Error('chat 스파이크 테스트에 필요한 채팅방 컨텍스트를 확보하지 못했습니다.');
+    }
+
+    console.log(`✅ Setup 완료: tokens=${tokens.length}개, groupId=${groupContext.groupId}, subgroupId=${subgroupContext.subgroupId}, chatRoomId=${subgroupContext.chatRoomId}`);
+    return {
+        tokens,
+        groupId: groupContext.groupId,
+        subgroupId: subgroupContext.subgroupId,
+        chatRoomId: subgroupContext.chatRoomId,
+        keywordIds,
+    };
 }
 
 // ============ 시나리오 함수들 ============

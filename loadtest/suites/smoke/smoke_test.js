@@ -1,9 +1,14 @@
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
+import { resolveGroupContext } from '../../shared/scenarios.js';
 
 export const options = {
     vus: 1, // 스모크 테스트를 위한 1명의 가상 유저
     duration: '10s', // 연결성 확인을 위한 짧은 시간
+    thresholds: {
+        checks: ['rate==1'],
+        http_req_failed: ['rate==0'],
+    },
 };
 
 const BASE_URL = __ENV.BASE_URL || 'https://stg.tasteam.kr';
@@ -17,6 +22,7 @@ export default function () {
     };
 
     let authParams = { ...params }; // 인증 토큰이 포함될 헤더
+    let token = null;
 
     // 동적으로 추출할 ID들
     let restaurantId = null;
@@ -41,7 +47,7 @@ export default function () {
         });
 
         if (res.status === 200) {
-            const token = res.json('data.accessToken'); // data 안에 있을 수 있음
+            token = res.json('data.accessToken'); // data 안에 있을 수 있음
             authParams.headers['Authorization'] = `Bearer ${token}`;
             console.log(`[로그인] 토큰 설정됨: ${token ? '성공' : '실패'}`);
         }
@@ -49,24 +55,20 @@ export default function () {
 
     sleep(1);
 
-    // 2. 그룹 가입 (비밀번호 인증)
+    // 2. 그룹 컨텍스트 확보 (내 그룹 우선, 없으면 그룹 검색 후 가입 시도)
     group('그룹 가입', function () {
-        const targetGroupId = 2002;
-        const joinPayload = JSON.stringify({
-            code: 'LOCAL-1234'
-        });
+        if (!token) {
+            console.log('[그룹 가입] 스킵 - 로그인 토큰 없음');
+            return;
+        }
 
-        const res = http.post(`${BASE_URL}/api/v1/groups/${targetGroupId}/password-authentications`, joinPayload, authParams);
+        const groupContext = resolveGroupContext(token);
+        groupId = groupContext.groupId;
 
-        console.log(`[그룹 가입] Status: ${res.status}, Body: ${res.body}`);
-
-        check(res, {
-            '그룹 가입 성공 (201)': (r) => r.status === 201,
-        });
-
-        if (res.status === 201) {
-            groupId = targetGroupId;
-            console.log(`[그룹 가입] 그룹 ${groupId} 가입 완료`);
+        if (groupId) {
+            console.log(`[그룹 가입] 그룹 컨텍스트 확보 완료: source=${groupContext.source}, groupId=${groupId}`);
+        } else {
+            console.log(`[그룹 가입] 그룹 컨텍스트 확보 실패: source=${groupContext.source}`);
         }
     });
 
@@ -277,4 +279,3 @@ export default function () {
 
     sleep(1);
 }
-

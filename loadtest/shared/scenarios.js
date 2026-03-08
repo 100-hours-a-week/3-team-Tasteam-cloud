@@ -9,6 +9,13 @@ export const BASE_URL = __ENV.BASE_URL || 'https://stg.tasteam.kr';
 const TEST_USER_PREFIX = 'test-user-';
 const TEST_USER_COUNT = 100;
 
+function parsePositiveIntEnv(name, fallback) {
+    const raw = __ENV[name];
+    if (!raw) return fallback;
+    const parsed = Number(raw);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export function getTestUser(index) {
     return {
         identifier: `${TEST_USER_PREFIX}${String(index).padStart(3, '0')}`,
@@ -18,11 +25,15 @@ export function getTestUser(index) {
 
 
 const TEST_GROUP = {
-    id: 2002,
-    code: 'LOCAL-1234',
+    id: parsePositiveIntEnv('TEST_GROUP_ID', 2002),
+    code: __ENV.TEST_GROUP_CODE || 'LOCAL-1234',
 };
+const GROUP_SEARCH_KEYWORDS = parseCsvEnv('GROUP_SEARCH_KEYWORDS').length > 0
+    ? parseCsvEnv('GROUP_SEARCH_KEYWORDS')
+    : ['테스트'];
+const GROUP_SEARCH_LIMIT = parsePositiveIntEnv('GROUP_SEARCH_LIMIT', 10);
 
-const TEST_RESTAURANT_ID = 6001;
+const TEST_RESTAURANT_ID = parsePositiveIntEnv('TEST_RESTAURANT_ID', 6001);
 
 // ============ Hotspot Configuration ============
 const HOTSPOT_CONFIG = {
@@ -229,25 +240,57 @@ export function batchLogin(count = 50) {
     return tokens;
 }
 
+function extractListFromResponse(res, paths = ['data.items', 'data']) {
+    if (!res || res.status !== 200) return [];
+
+    for (const path of paths) {
+        try {
+            const value = res.json(path);
+            if (Array.isArray(value)) {
+                return value;
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    return [];
+}
+
 /**
  * 그룹에 가입합니다.
  */
-export function joinGroup(token) {
+export function joinGroupById(token, groupId, code = TEST_GROUP.code, { recordCheck = true } = {}) {
+    if (!groupId) return null;
+
     const payload = JSON.stringify({
-        code: TEST_GROUP.code,
+        code,
     });
+    const requestParams = {
+        headers: getHeaders(token),
+    };
+
+    if (!recordCheck) {
+        requestParams.responseCallback = http.expectedStatuses({ min: 200, max: 499 });
+    }
 
     const res = http.post(
-        `${BASE_URL}/api/v1/groups/${TEST_GROUP.id}/password-authentications`,
+        `${BASE_URL}/api/v1/groups/${groupId}/password-authentications`,
         payload,
-        { headers: getHeaders(token) }
+        requestParams
     );
 
-    check(res, {
-        '그룹 가입 성공 (201)': (r) => r.status === 201,
-    });
+    if (recordCheck) {
+        check(res, {
+            '그룹 가입 성공 (201)': (r) => r.status === 201,
+        });
+    }
 
-    return res.status === 201 ? TEST_GROUP.id : null;
+    return res.status === 201 ? groupId : null;
+}
+
+export function joinGroup(token) {
+    return joinGroupById(token, TEST_GROUP.id, TEST_GROUP.code, { recordCheck: true });
 }
 
 /**
@@ -464,7 +507,11 @@ export function search(token, keyword = 'test', loc = null) {
  * 리뷰 작성
  */
 export function createReview(token, groupId, keywordIds, restaurantId = TEST_RESTAURANT_ID) {
-    const targetGroupId = groupId || TEST_GROUP.id;
+    if (!groupId) {
+        return null;
+    }
+
+    const targetGroupId = groupId;
     const selectedKeywordIds = keywordIds && keywordIds.length > 0 ? [keywordIds[0]] : [1];
 
     const payload = JSON.stringify({
@@ -854,6 +901,94 @@ export function getMyGroups(token) {
     return res;
 }
 
+export function searchGroups(token, keyword) {
+    const res = http.post(
+        `${BASE_URL}/api/v1/search?keyword=${encodeURIComponent(keyword)}`,
+        null,
+        { headers: getHeaders(token), tags: { name: 'group_search', type: 'read' } }
+    );
+    check(res, { '그룹 검색 성공 (200)': (r) => r.status === 200 });
+    return res;
+}
+
+function extractSearchGroupIds(res) {
+    if (!res || res.status !== 200) return [];
+
+    try {
+        const groups = res.json('data.groups');
+        if (!Array.isArray(groups)) return [];
+        return groups
+            .map((item) => item && (item.groupId || item.id))
+            .filter(Boolean);
+    } catch (e) {
+        return [];
+    }
+}
+
+function findGroupCandidates(token) {
+    const candidates = [];
+    const keywords = uniqueList(GROUP_SEARCH_KEYWORDS).slice(0, GROUP_SEARCH_LIMIT);
+
+    keywords.forEach((keyword) => {
+        const res = searchGroups(token, keyword);
+        extractSearchGroupIds(res).forEach((groupId) => {
+            if (!candidates.includes(groupId)) {
+                candidates.push(groupId);
+            }
+        });
+    });
+
+    return candidates.slice(0, GROUP_SEARCH_LIMIT);
+}
+
+export function resolveGroupContext(token, { allowJoin = true } = {}) {
+    const res = getMyGroups(token);
+    const items = extractListFromResponse(res);
+    const groupIds = items.map((item) => item && item.id).filter(Boolean);
+
+    if (groupIds.length > 0) {
+        return {
+            response: res,
+            items,
+            groupId: groupIds[0],
+            groupIds,
+            source: 'my-groups',
+        };
+    }
+
+    if (!allowJoin) {
+        return {
+            response: res,
+            items,
+            groupId: null,
+            groupIds: [],
+            source: 'none',
+        };
+    }
+
+    const candidateGroupIds = findGroupCandidates(token);
+    for (const candidateGroupId of candidateGroupIds) {
+        const joinedGroupId = joinGroupById(token, candidateGroupId, TEST_GROUP.code, { recordCheck: false });
+        if (joinedGroupId) {
+            return {
+                response: res,
+                items,
+                groupId: joinedGroupId,
+                groupIds: [joinedGroupId],
+                source: 'group-search',
+            };
+        }
+    }
+
+    return {
+        response: res,
+        items,
+        groupId: null,
+        groupIds: [],
+        source: 'none',
+    };
+}
+
 export function getMyGroupsSummary(token) {
     const res = http.get(
         `${BASE_URL}/api/v1/members/me/groups/summary`,
@@ -1052,6 +1187,39 @@ export function getSubgroupChatRoom(token, subgroupId) {
         } catch (e) { /* ignore */ }
     }
     return { response: res, chatRoomId };
+}
+
+export function resolveSubgroupChatContext(token, groupId) {
+    if (!groupId) {
+        return {
+            subgroupId: null,
+            chatRoomId: null,
+            subgroupRes: null,
+            chatRoomRes: null,
+        };
+    }
+
+    const subgroupRes = getGroupSubgroups(token, groupId);
+    const subgroupId = subgroupRes && subgroupRes.items && subgroupRes.items.length > 0
+        ? subgroupRes.items[0].subgroupId
+        : null;
+
+    if (!subgroupId) {
+        return {
+            subgroupId: null,
+            chatRoomId: null,
+            subgroupRes,
+            chatRoomRes: null,
+        };
+    }
+
+    const chatRoomRes = getSubgroupChatRoom(token, subgroupId);
+    return {
+        subgroupId,
+        chatRoomId: (chatRoomRes && chatRoomRes.chatRoomId) || null,
+        subgroupRes,
+        chatRoomRes,
+    };
 }
 
 // ============ User Event / Write Functions ============

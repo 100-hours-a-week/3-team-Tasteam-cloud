@@ -18,11 +18,7 @@ import {
     BASE_URL,
     createState,
     batchLogin,
-    joinGroup,
-    getMyGroups,
     getReviewKeywords,
-    getGroupSubgroups,
-    getSubgroupChatRoom,
     executeBrowsingJourney,
     executeSearchingJourney,
     search,
@@ -31,10 +27,13 @@ import {
     randomLocation,
     randomKeyword,
     randomChatMessage,
+    resolveGroupContext,
+    resolveSubgroupChatContext,
 } from '../../shared/scenarios.js';
 import { logTestStart, SuccessMetrics } from '../../shared/test-utils.js';
 
 const TEST_TYPE = __ENV.TEST_TYPE || 'read-heavy';
+const USER_POOL = Number(__ENV.USER_POOL || '100');
 
 const metrics = new SuccessMetrics(['stress_success_count']);
 
@@ -42,6 +41,7 @@ const metrics = new SuccessMetrics(['stress_success_count']);
 
 const SCENARIO_OPTIONS = {
     'read-heavy': {
+        setupTimeout: '5m',
         scenarios: {
             stress: {
                 executor: 'ramping-vus',
@@ -62,6 +62,7 @@ const SCENARIO_OPTIONS = {
         },
     },
     'write-heavy': {
+        setupTimeout: '5m',
         scenarios: {
             stress: {
                 executor: 'ramping-vus',
@@ -82,6 +83,7 @@ const SCENARIO_OPTIONS = {
         },
     },
     'search-only': {
+        setupTimeout: '5m',
         scenarios: {
             stress: {
                 executor: 'ramping-arrival-rate',
@@ -112,8 +114,9 @@ export const options = SCENARIO_OPTIONS[TEST_TYPE] || SCENARIO_OPTIONS['read-hea
 export function setup() {
     logTestStart(`Stress Test [${TEST_TYPE}]`, BASE_URL);
     console.log(`   부하 패턴: 램프업 → 지속 고부하 → 램프다운`);
+    console.log(`   사용자 풀: ${USER_POOL}`);
 
-    const tokens = batchLogin(100);
+    const tokens = batchLogin(USER_POOL);
     if (!tokens || tokens.length === 0) {
         console.error('❌ 로그인 실패 - 테스트 중단');
         return null;
@@ -122,28 +125,21 @@ export function setup() {
     const baseToken = tokens[0];
     const keywordIds = getReviewKeywords(baseToken);
 
-    let groupId = null;
-    const myGroupsRes = getMyGroups(baseToken);
-    if (myGroupsRes && myGroupsRes.status === 200) {
-        try {
-            const items = myGroupsRes.json('data.items');
-            if (items && items.length > 0) groupId = items[0].id;
-        } catch (e) { /* ignore */ }
-    }
-    if (!groupId) groupId = joinGroup(baseToken);
+    const groupContext = resolveGroupContext(baseToken);
+    const subgroupContext = resolveSubgroupChatContext(baseToken, groupContext.groupId);
 
-    const subgroupsRes = getGroupSubgroups(baseToken, groupId);
-    const subgroupId = (subgroupsRes && subgroupsRes.items && subgroupsRes.items.length > 0)
-        ? subgroupsRes.items[0].subgroupId : null;
-
-    let chatRoomId = null;
-    if (subgroupId) {
-        const chatRoomRes = getSubgroupChatRoom(baseToken, subgroupId);
-        chatRoomId = (chatRoomRes && chatRoomRes.chatRoomId) || null;
+    if (TEST_TYPE === 'write-heavy' && !groupContext.groupId) {
+        throw new Error('write-heavy 스트레스 테스트에 필요한 그룹 컨텍스트를 확보하지 못했습니다. 내 그룹 또는 GROUP_SEARCH_KEYWORDS/TEST_GROUP_CODE 설정을 확인하세요.');
     }
 
-    console.log(`✅ Setup 완료: tokens=${tokens.length}개, groupId=${groupId}, subgroupId=${subgroupId}, chatRoomId=${chatRoomId}`);
-    return { tokens, groupId, subgroupId, chatRoomId, keywordIds };
+    console.log(`✅ Setup 완료: tokens=${tokens.length}개, groupId=${groupContext.groupId}, subgroupId=${subgroupContext.subgroupId}, chatRoomId=${subgroupContext.chatRoomId}`);
+    return {
+        tokens,
+        groupId: groupContext.groupId,
+        subgroupId: subgroupContext.subgroupId,
+        chatRoomId: subgroupContext.chatRoomId,
+        keywordIds,
+    };
 }
 
 // ============ 시나리오 함수들 ============
