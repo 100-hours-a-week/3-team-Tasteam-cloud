@@ -2609,9 +2609,23 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
         a("  NOW()")
         a("FROM tmp_chat_domain_image;")
         a("")
-        a("INSERT INTO domain_image (id, domain_type, domain_id, image_id, sort_order, created_at)")
-        a("SELECT nextval('domain_image_seq'), 'CHAT_MESSAGE', chat_message_id, image_id, 0, NOW() FROM tmp_chat_domain_image")
-        a("ON CONFLICT ON CONSTRAINT uq_domain_image_link DO NOTHING;")
+        a("DO $$")
+        a("BEGIN")
+        a("  IF EXISTS (")
+        a(
+            "    SELECT 1 FROM pg_constraint c"
+            " WHERE c.conrelid = 'domain_image'::regclass"
+            "   AND c.conname = 'domain_image_domain_type_check'"
+            "   AND c.contype = 'c'"
+            "   AND pg_get_constraintdef(c.oid) LIKE '%CHAT_MESSAGE%'"
+        )
+        a("  ) THEN")
+        a("    INSERT INTO domain_image (id, domain_type, domain_id, image_id, sort_order, created_at)")
+        a("    SELECT nextval('domain_image_seq'), 'CHAT_MESSAGE', chat_message_id, image_id, 0, NOW()")
+        a("    FROM tmp_chat_domain_image")
+        a("    ON CONFLICT ON CONSTRAINT uq_domain_image_link DO NOTHING;")
+        a("  END IF;")
+        a("END $$;")
         a("")
         a(
             "INSERT INTO chat_message_file "
@@ -2625,9 +2639,20 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
         a("  NOW(),")
         a("  NULL,")
         a("  c.file_uuid::TEXT,")
-        a("  d.id")
+        a("  CASE")
+        a("    WHEN EXISTS (")
+        a(
+            "      SELECT 1 FROM pg_constraint c"
+            " WHERE c.conrelid = 'domain_image'::regclass"
+            "   AND c.conname = 'domain_image_domain_type_check'"
+            "   AND c.contype = 'c'"
+            "   AND pg_get_constraintdef(c.oid) LIKE '%CHAT_MESSAGE%'"
+        )
+        a("    ) THEN d.id")
+        a("    ELSE NULL")
+        a("  END AS domain_image_id")
         a("FROM tmp_chat_domain_image c")
-        a("JOIN domain_image d")
+        a("LEFT JOIN domain_image d")
         a("  ON d.domain_type = 'CHAT_MESSAGE'")
         a(" AND d.domain_id = c.chat_message_id")
         a(" AND d.image_id = c.image_id;")
