@@ -34,6 +34,7 @@ import {
     resolveGroupContext,
     resolveSubgroupChatContext,
 } from '../../shared/scenarios.js';
+import { withQuickRunOptions } from '../../shared/quick-run.js';
 
 const SUITE = __ENV.TEST_SUITE || 'full';
 const CACHE_MODE = __ENV.CACHE_MODE || 'off';
@@ -275,7 +276,7 @@ function buildOptionsBySuite() {
     };
 }
 
-export const options = {
+export const options = withQuickRunOptions({
     setupTimeout: '5m',
     scenarios: buildOptionsBySuite(),
     thresholds: {
@@ -315,7 +316,7 @@ export const options = {
             { threshold: 'p(99)<15000', abortOnFail: true, delayAbortEval: '30s' },
         ],
     },
-};
+});
 
 function buildState(data) {
     const state = createState();
@@ -334,7 +335,7 @@ export function setup() {
 
     const tokens = batchLogin(USER_POOL);
     if (!tokens || tokens.length === 0) {
-        throw new Error('토큰 발급 실패: test/auth/token 확인 필요');
+        throw new Error('토큰 발급 실패: 테스트 토큰 API 확인 필요');
     }
 
     const baseToken = tokens[0];

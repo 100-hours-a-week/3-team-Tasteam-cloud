@@ -26,13 +26,14 @@ import {
     prepareHotspotPools,
     resolveGroupContext,
 } from '../../shared/scenarios.js';
+import { withQuickRunOptions } from '../../shared/quick-run.js';
 import { logTestStart, SuccessMetrics } from '../../shared/test-utils.js';
 
 // ============ Custom Metrics ============
 const metrics = new SuccessMetrics(['read_success_count', 'write_success_count']);
 
 // ============ Test Options ============
-export const options = {
+export const options = withQuickRunOptions({
     setupTimeout: '5m',
     scenarios: {
         // 조회 시나리오 (80% 비율)
@@ -72,7 +73,7 @@ export const options = {
         'http_req_duration{scenario:write_scenario}': ['p(95)<3000'], // 쓰기: p95 < 3초
         'http_req_failed': ['rate<0.001'],                             // 에러율 < 0.1%
     },
-};
+});
 
 // ============ Setup ============
 export function setup() {

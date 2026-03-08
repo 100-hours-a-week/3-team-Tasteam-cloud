@@ -30,6 +30,7 @@ import {
     resolveGroupContext,
     resolveSubgroupChatContext,
 } from '../../shared/scenarios.js';
+import { withQuickRunOptions } from '../../shared/quick-run.js';
 import { logTestStart, SuccessMetrics } from '../../shared/test-utils.js';
 
 const TEST_TYPE = __ENV.TEST_TYPE || 'read-heavy';
@@ -108,7 +109,9 @@ const SCENARIO_OPTIONS = {
     },
 };
 
-export const options = SCENARIO_OPTIONS[TEST_TYPE] || SCENARIO_OPTIONS['read-heavy'];
+export const options = withQuickRunOptions(
+    SCENARIO_OPTIONS[TEST_TYPE] || SCENARIO_OPTIONS['read-heavy']
+);
 
 // ============ Setup ============
 export function setup() {

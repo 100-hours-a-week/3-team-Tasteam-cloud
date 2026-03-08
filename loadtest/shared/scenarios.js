@@ -3,6 +3,7 @@ import { check, sleep } from 'k6';
 
 // ============ Configuration ============
 export const BASE_URL = __ENV.BASE_URL || 'https://stg.tasteam.kr';
+export const TEST_AUTH_TOKEN_PATH = __ENV.TEST_AUTH_TOKEN_PATH || '/api/v1/auth/token/test';
 
 // 테스트 계정 정보
 // 테스트 계정 정보
@@ -188,7 +189,7 @@ export function login(user) {
     });
 
     const res = http.post(
-        `${BASE_URL}/api/v1/test/auth/token`,
+        `${BASE_URL}${TEST_AUTH_TOKEN_PATH}`,
         payload,
         { headers: getHeaders() }
     );
@@ -212,7 +213,7 @@ export function batchLogin(count = 50) {
         const user = getTestUser(i);
         requests.push({
             method: 'POST',
-            url: `${BASE_URL}/api/v1/test/auth/token`,
+            url: `${BASE_URL}${TEST_AUTH_TOKEN_PATH}`,
             body: JSON.stringify({
                 identifier: user.identifier,
                 nickname: user.nickname,
@@ -963,6 +964,17 @@ export function resolveGroupContext(token, { allowJoin = true } = {}) {
             groupId: null,
             groupIds: [],
             source: 'none',
+        };
+    }
+
+    const fixedGroupId = joinGroupById(token, TEST_GROUP.id, TEST_GROUP.code, { recordCheck: false });
+    if (fixedGroupId) {
+        return {
+            response: res,
+            items,
+            groupId: fixedGroupId,
+            groupIds: [fixedGroupId],
+            source: 'fixed-group',
         };
     }
 

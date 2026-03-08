@@ -44,6 +44,7 @@ import {
     resolveGroupContext,
     resolveSubgroupChatContext,
 } from '../../shared/scenarios.js';
+import { withQuickRunOptions } from '../../shared/quick-run.js';
 import { logTestStart, SuccessMetrics } from '../../shared/test-utils.js';
 
 const SPIKE_TARGET = __ENV.SPIKE_TARGET || 'search';
@@ -154,10 +155,10 @@ const SCENARIO_OPTIONS = {
     },
 };
 
-export const options = {
+export const options = withQuickRunOptions({
     setupTimeout: '5m',
     ...(SCENARIO_OPTIONS[SPIKE_TARGET] || SCENARIO_OPTIONS['search']),
-};
+});
 
 // ============ Setup ============
 export function setup() {

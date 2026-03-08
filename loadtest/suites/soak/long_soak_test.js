@@ -36,6 +36,7 @@ import {
     resolveGroupContext,
     resolveSubgroupChatContext,
 } from '../../shared/scenarios.js';
+import { withQuickRunOptions } from '../../shared/quick-run.js';
 import { logTestStart, createJourneyMetrics } from '../../shared/test-utils.js';
 
 const SOAK_MODE  = __ENV.SOAK_MODE  || '24h';
@@ -85,7 +86,7 @@ const SOAK_STAGES = {
     ],
 };
 
-export const options = {
+export const options = withQuickRunOptions({
     setupTimeout: '5m',
     scenarios: {
         soak: {
@@ -101,7 +102,7 @@ export const options = {
         'http_req_duration{type:read}':  ['p(95)<1000'],
         'http_req_duration{type:write}': ['p(95)<3000'],
     },
-};
+});
 
 // ============ Setup ============
 export function setup() {

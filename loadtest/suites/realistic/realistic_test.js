@@ -35,6 +35,7 @@ import {
     resolveGroupContext,
     resolveSubgroupChatContext,
 } from '../../shared/scenarios.js';
+import { withQuickRunOptions } from '../../shared/quick-run.js';
 import { logTestStart, createJourneyMetrics } from '../../shared/test-utils.js';
 
 // ============ Custom Metrics ============
@@ -64,7 +65,7 @@ function selectJourney() {
 }
 
 // ============ Test Options ============
-export const options = {
+export const options = withQuickRunOptions({
     setupTimeout: '5m',
     scenarios: {
         realistic: {
@@ -89,7 +90,7 @@ export const options = {
         'http_req_duration{type:read}':  ['p(95)<1000'],  // 읽기 p95 < 1초
         'http_req_duration{type:write}': ['p(95)<3000'],  // 쓰기 p95 < 3초
     },
-};
+});
 
 // ============ Setup ============
 export function setup() {

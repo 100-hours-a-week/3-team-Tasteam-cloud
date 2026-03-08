@@ -1,17 +1,19 @@
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
+import { withQuickRunOptions } from '../../shared/quick-run.js';
 import { resolveGroupContext } from '../../shared/scenarios.js';
 
-export const options = {
+export const options = withQuickRunOptions({
     vus: 1, // 스모크 테스트를 위한 1명의 가상 유저
     duration: '10s', // 연결성 확인을 위한 짧은 시간
     thresholds: {
         checks: ['rate==1'],
         http_req_failed: ['rate==0'],
     },
-};
+});
 
 const BASE_URL = __ENV.BASE_URL || 'https://stg.tasteam.kr';
+const TEST_AUTH_TOKEN_PATH = __ENV.TEST_AUTH_TOKEN_PATH || '/api/v1/auth/token/test';
 
 export default function () {
     // 공통 헤더 설정
@@ -38,7 +40,7 @@ export default function () {
             nickname: '스모크테스트계정1'
         });
 
-        const res = http.post(`${BASE_URL}/api/v1/test/auth/token`, loginPayload, params);
+        const res = http.post(`${BASE_URL}${TEST_AUTH_TOKEN_PATH}`, loginPayload, params);
 
         console.log(`[로그인] Status: ${res.status}, Body: ${res.body}`);
 

@@ -16,6 +16,7 @@ import {
     resolveGroupContext,
     resolveSubgroupChatContext,
 } from '../../shared/scenarios.js';
+import { withQuickRunOptions } from '../../shared/quick-run.js';
 
 const SOAK_MODE = __ENV.SOAK_MODE || '24h';
 const CACHE_MODE = __ENV.CACHE_MODE || 'off';
@@ -64,7 +65,7 @@ function buildStages() {
     ];
 }
 
-export const options = {
+export const options = withQuickRunOptions({
     setupTimeout: '5m',
     scenarios: {
         soak: {
@@ -81,7 +82,7 @@ export const options = {
         'http_req_duration{type:write}': ['p(95)<3000'],
         http_req_duration: ['p(99)<5000'],
     },
-};
+});
 
 function randomToken(tokens) {
     return tokens[Math.floor(Math.random() * tokens.length)];
@@ -104,7 +105,7 @@ export function setup() {
 
     const tokens = batchLogin(USER_POOL);
     if (!tokens || tokens.length === 0) {
-        throw new Error('토큰 발급 실패: test/auth/token 확인 필요');
+        throw new Error('토큰 발급 실패: 테스트 토큰 API 확인 필요');
     }
 
     const baseToken = tokens[0];

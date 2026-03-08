@@ -16,3 +16,6 @@ v2-docker/monitoring/loki/data/
 # MacOS
 .DS_Store
 .idea
+*.pyc
+*.log
+/loadtest/results

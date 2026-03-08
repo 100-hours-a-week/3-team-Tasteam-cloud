@@ -32,6 +32,7 @@ import {
     resolveGroupContext,
     resolveSubgroupChatContext,
 } from '../../shared/scenarios.js';
+import { withQuickRunOptions } from '../../shared/quick-run.js';
 import { logTestStart, createJourneyMetrics } from '../../shared/test-utils.js';
 
 const metrics = createJourneyMetrics();
@@ -57,7 +58,7 @@ function selectJourney() {
 }
 
 // ============ Test Options ============
-export const options = {
+export const options = withQuickRunOptions({
     setupTimeout: '5m',
     scenarios: {
         recovery: {
@@ -79,7 +80,7 @@ export const options = {
         'http_req_duration{type:read}':  ['p(95)<1500'],
         'http_req_duration{type:write}': ['p(95)<3000'],
     },
-};
+});
 
 // ============ Setup ============
 export function setup() {
