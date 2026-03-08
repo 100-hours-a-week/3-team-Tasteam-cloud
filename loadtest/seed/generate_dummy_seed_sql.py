@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+# Spring BCryptPasswordEncoder().encode("1234") 로 생성한 고정 해시값
+DEFAULT_GROUP_JOIN_CODE_BCRYPT_HASH = "$2a$10$PDQWS8fFPpIgAIwQY057NeKCd0WCUXAVX421zmYI97zawhlmVK3ki"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "counts": {
@@ -30,6 +32,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "notification_count": 400_000,
         "favorite_count": 100_000,
         "subgroup_favorite_count": 1_000,
+        "announcement_count": 12,
+        "promotion_count": 8,
+        "report_count": 2_500,
+        "schedule_override_count": 2_000,
+        "push_target_count": 3_000,
+        "refresh_token_count": 1_000,
+        "restaurant_image_count": 15_000,
+        "review_image_count": 30_000,
+        "member_image_count": 2_500,
+        "group_image_count": 900,
+        "subgroup_image_count": 2_000,
+        "menu_domain_image_count": 12_000,
+        "chat_image_count": 8_000,
+        "image_optimization_job_count": 5_000,
     },
     "content": {
         "run_token": "",
@@ -40,6 +56,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "group_logo_base_url": "https://cdn.tasteam.kr/groups",
         "subgroup_profile_base_url": "https://cdn.tasteam.kr/subgroups",
         "menu_image_base_url": "https://cdn.tasteam.kr/menus",
+        "restaurant_image_base_url": "https://cdn.tasteam.kr/restaurants",
+        "review_image_base_url": "https://cdn.tasteam.kr/reviews",
+        "chat_image_base_url": "https://cdn.tasteam.kr/chats",
+        "promotion_image_base_url": "https://cdn.tasteam.kr/promotions",
         "group_password_prefix": "grp-pass",
         "subgroup_password_prefix": "sg-pass",
         "member_email_local_first": [
@@ -157,6 +177,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "menu_per_category": 3,
         "base_menu_price": 8_000,
         "max_keywords_per_review": 3,
+        "include_async_log_data": False,
+        "async_log_scale_percent": 30,
     },
 }
 
@@ -171,6 +193,20 @@ LIMITS = {
     "notification_count": 2_000_000,
     "favorite_count": 500_000,
     "subgroup_favorite_count": 500_000,
+    "announcement_count": 500,
+    "promotion_count": 500,
+    "report_count": 200_000,
+    "schedule_override_count": 200_000,
+    "push_target_count": 100_000,
+    "refresh_token_count": 100_000,
+    "restaurant_image_count": 300_000,
+    "review_image_count": 1_000_000,
+    "member_image_count": 100_000,
+    "group_image_count": 20_000,
+    "subgroup_image_count": 100_000,
+    "menu_domain_image_count": 1_000_000,
+    "chat_image_count": 500_000,
+    "image_optimization_job_count": 500_000,
 }
 
 
@@ -245,6 +281,12 @@ def normalize_and_validate(cfg: dict[str, Any]) -> dict[str, Any]:
     tuning["max_keywords_per_review"] = require_int(
         "max_keywords_per_review", tuning.get("max_keywords_per_review"), 1
     )
+    tuning["include_async_log_data"] = bool(tuning.get("include_async_log_data", False))
+    tuning["async_log_scale_percent"] = require_int(
+        "async_log_scale_percent", tuning.get("async_log_scale_percent"), 0
+    )
+    if tuning["async_log_scale_percent"] > 300:
+        raise ConfigError("async_log_scale_percent 값은 300 이하여야 합니다.")
 
     for key in [
         "member_email_prefix",
@@ -254,6 +296,10 @@ def normalize_and_validate(cfg: dict[str, Any]) -> dict[str, Any]:
         "group_logo_base_url",
         "subgroup_profile_base_url",
         "menu_image_base_url",
+        "restaurant_image_base_url",
+        "review_image_base_url",
+        "chat_image_base_url",
+        "promotion_image_base_url",
         "group_password_prefix",
         "subgroup_password_prefix",
         "restaurant_name_prefix",
@@ -318,6 +364,20 @@ def normalize_and_validate(cfg: dict[str, Any]) -> dict[str, Any]:
     notification_count = counts["notification_count"]
     favorite_count = counts["favorite_count"]
     subgroup_favorite_count = counts["subgroup_favorite_count"]
+    announcement_count = counts["announcement_count"]
+    promotion_count = counts["promotion_count"]
+    report_count = counts["report_count"]
+    schedule_override_count = counts["schedule_override_count"]
+    push_target_count = counts["push_target_count"]
+    refresh_token_count = counts["refresh_token_count"]
+    restaurant_image_count = counts["restaurant_image_count"]
+    review_image_count = counts["review_image_count"]
+    member_image_count = counts["member_image_count"]
+    group_image_count = counts["group_image_count"]
+    subgroup_image_count = counts["subgroup_image_count"]
+    menu_domain_image_count = counts["menu_domain_image_count"]
+    chat_image_count = counts["chat_image_count"]
+    image_optimization_job_count = counts["image_optimization_job_count"]
 
     total_subgroups = group_count * subgroup_per_group
     if total_subgroups > 1_000_000:
@@ -370,6 +430,115 @@ def jsonb_literal(payload: dict[str, Any]) -> str:
     return sql_quote(dumped) + "::jsonb"
 
 
+def sql_md5_expr(seed_expr: str) -> str:
+    return f"MD5({seed_expr})"
+
+
+def sql_hash_slice_expr(seed_expr: str, start: int, length: int) -> str:
+    return f"SUBSTR({sql_md5_expr(seed_expr)}, {start}, {length})"
+
+
+def sql_bucket_expr(seed_expr: str, offset: int, modulo: int, base: int = 0) -> str:
+    return f"(MOD(ASCII(SUBSTR({sql_md5_expr(seed_expr)}, {offset}, 1)), {modulo}) + {base})"
+
+
+def sql_variant_case_expr(seed_expr: str, variants: list[str], offset: int = 2) -> str:
+    if not variants:
+        raise ValueError("variants는 최소 1개 이상이어야 합니다.")
+    if len(variants) == 1:
+        return sql_quote(variants[0])
+
+    bucket_expr = sql_bucket_expr(seed_expr, offset, len(variants))
+    parts = [f"CASE {bucket_expr}"]
+    for idx, variant in enumerate(variants):
+        parts.append(f" WHEN {idx} THEN {sql_quote(variant)}")
+    parts.append(f" ELSE {sql_quote(variants[-1])} END")
+    return "".join(parts)
+
+
+def sql_asset_url_expr(
+    base_url: str,
+    run_token: str,
+    entity_path_expr: str,
+    ext: str,
+    seed_expr: str,
+    variants: list[str],
+) -> str:
+    shard_expr = sql_bucket_expr(seed_expr, 1, 16, 1)
+    return (
+        sql_quote(base_url)
+        + " || '/' || "
+        + sql_quote(run_token)
+        + " || '/edge-' || LPAD(("
+        + shard_expr
+        + ")::TEXT, 2, '0') || '/' || "
+        + entity_path_expr
+        + " || '/' || "
+        + sql_hash_slice_expr(seed_expr, 1, 10)
+        + " || '-' || "
+        + sql_hash_slice_expr(seed_expr, 11, 8)
+        + " || '."
+        + ext
+        + "?tr=' || "
+        + sql_variant_case_expr(seed_expr, variants, 2)
+    )
+
+
+def sql_storage_key_expr(
+    prefix: str,
+    run_token: str,
+    entity_path_expr: str,
+    ext: str,
+    seed_expr: str,
+) -> str:
+    shard_expr = sql_bucket_expr(seed_expr, 3, 16, 1)
+    return (
+        sql_quote(prefix)
+        + " || '/' || "
+        + sql_quote(run_token)
+        + " || '/bucket-' || LPAD(("
+        + shard_expr
+        + ")::TEXT, 2, '0') || '/' || "
+        + entity_path_expr
+        + " || '/' || "
+        + sql_hash_slice_expr(seed_expr, 1, 12)
+        + " || '-' || "
+        + sql_hash_slice_expr(seed_expr, 13, 8)
+        + " || '."
+        + ext
+        + "'"
+    )
+
+
+def sql_uuid_expr(seed_expr: str) -> str:
+    return (
+        "("
+        f"SUBSTR(MD5({seed_expr}), 1, 8) || '-' || "
+        f"SUBSTR(MD5({seed_expr}), 9, 4) || '-' || "
+        f"SUBSTR(MD5({seed_expr}), 13, 4) || '-' || "
+        f"SUBSTR(MD5({seed_expr}), 17, 4) || '-' || "
+        f"SUBSTR(MD5({seed_expr}), 21, 12)"
+        ")::uuid"
+    )
+
+
+def sql_hex64_expr(seed_expr: str) -> str:
+    return f"(MD5({seed_expr}) || MD5({seed_expr} || '-seed'))"
+
+
+def estimate_member_search_history_rows(member_count: int) -> int:
+    full_cycles = member_count // 4
+    remainder = member_count % 4
+    remainder_totals = [0, 2, 5, 9]
+    return (full_cycles * 14) + remainder_totals[remainder]
+
+
+def scale_count(base_count: int, scale_percent: int) -> int:
+    if base_count <= 0 or scale_percent <= 0:
+        return 0
+    return max(1, (base_count * scale_percent + 99) // 100)
+
+
 def build_seed_sql(cfg: dict[str, Any]) -> str:
     counts = cfg["counts"]
     content = cfg["content"]
@@ -385,11 +554,28 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
     notification_count = counts["notification_count"]
     favorite_count = counts["favorite_count"]
     subgroup_favorite_count = counts["subgroup_favorite_count"]
+    announcement_count = counts["announcement_count"]
+    promotion_count = counts["promotion_count"]
+    report_count = counts["report_count"]
+    schedule_override_count = counts["schedule_override_count"]
+    push_target_count = counts["push_target_count"]
+    refresh_token_count = counts["refresh_token_count"]
+    restaurant_image_count = counts["restaurant_image_count"]
+    review_image_count = counts["review_image_count"]
+    member_image_count = counts["member_image_count"]
+    group_image_count = counts["group_image_count"]
+    subgroup_image_count = counts["subgroup_image_count"]
+    menu_domain_image_count = counts["menu_domain_image_count"]
+    chat_image_count = counts["chat_image_count"]
+    image_optimization_job_count = counts["image_optimization_job_count"]
 
     run_token = content["run_token"]
+    group_join_code_hash_sql = sql_quote(DEFAULT_GROUP_JOIN_CODE_BCRYPT_HASH)
     menu_per_category = tuning["menu_per_category"]
     base_menu_price = tuning["base_menu_price"]
     max_keywords_per_review = tuning["max_keywords_per_review"]
+    include_async_log_data = tuning["include_async_log_data"]
+    async_log_scale_percent = tuning["async_log_scale_percent"]
     realistic_names = content.get("realistic_names", False)
     seoul_coords = content.get("seoul_focused_coords", False)
 
@@ -403,6 +589,99 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
     # 파레토 분포: 상위 20% 멤버가 리뷰의 80% 차지 (활성 유저 vs 휴면 유저 시나리오)
     active_member_count = max(1, member_count // 5)
     inactive_member_count = max(1, member_count - active_member_count)
+    total_menu_count = restaurant_count * len(content["menu_category_names"]) * menu_per_category
+
+    effective_announcement_count = announcement_count
+    effective_promotion_count = promotion_count
+    effective_report_count = min(report_count, member_count * 5) if member_count > 0 else 0
+    effective_schedule_override_count = min(schedule_override_count, restaurant_count)
+    effective_push_target_count = min(push_target_count, member_count)
+    effective_refresh_token_count = min(refresh_token_count, member_count)
+    effective_restaurant_image_count = min(restaurant_image_count, restaurant_count * 3)
+    effective_review_image_count = min(review_image_count, review_count)
+    effective_member_image_count = min(member_image_count, member_count)
+    effective_group_image_count = min(group_image_count, group_count)
+    effective_subgroup_image_count = min(subgroup_image_count, total_subgroups)
+    effective_menu_domain_image_count = min(menu_domain_image_count, total_menu_count)
+    effective_chat_image_count = min(chat_image_count, total_subgroups * chat_message_per_room)
+
+    total_image_seed_count = (
+        effective_restaurant_image_count
+        + effective_review_image_count
+        + effective_member_image_count
+        + effective_group_image_count
+        + effective_subgroup_image_count
+        + effective_menu_domain_image_count
+        + effective_chat_image_count
+        + (effective_promotion_count * 3)
+    )
+    effective_image_optimization_job_count = min(image_optimization_job_count, total_image_seed_count)
+    estimated_member_search_history_count = estimate_member_search_history_rows(member_count)
+    seeded_group_member_count = group_count * members_per_group_effective
+    base_user_activity_group_join_count = seeded_group_member_count
+    base_user_activity_review_created_count = review_count
+    base_user_activity_search_count = estimated_member_search_history_count
+    base_user_activity_favorite_count = favorite_count
+    base_user_activity_restaurant_view_count = (
+        min((review_count // 2) + favorite_count, member_count * 12) if member_count > 0 else 0
+    )
+    base_user_activity_page_view_count = member_count * 6
+    base_user_activity_page_dwelled_count = member_count * 4
+    effective_user_activity_group_join_count = (
+        scale_count(base_user_activity_group_join_count, async_log_scale_percent)
+        if include_async_log_data
+        else 0
+    )
+    effective_user_activity_review_created_count = (
+        scale_count(base_user_activity_review_created_count, async_log_scale_percent)
+        if include_async_log_data
+        else 0
+    )
+    effective_user_activity_search_count = (
+        scale_count(base_user_activity_search_count, async_log_scale_percent)
+        if include_async_log_data
+        else 0
+    )
+    effective_user_activity_favorite_count = (
+        scale_count(base_user_activity_favorite_count, async_log_scale_percent)
+        if include_async_log_data
+        else 0
+    )
+    effective_user_activity_restaurant_view_count = (
+        scale_count(base_user_activity_restaurant_view_count, async_log_scale_percent)
+        if include_async_log_data
+        else 0
+    )
+    effective_user_activity_page_view_count = (
+        scale_count(base_user_activity_page_view_count, async_log_scale_percent)
+        if include_async_log_data
+        else 0
+    )
+    effective_user_activity_page_dwelled_count = (
+        scale_count(base_user_activity_page_dwelled_count, async_log_scale_percent)
+        if include_async_log_data
+        else 0
+    )
+    total_user_activity_event_count = (
+        effective_user_activity_group_join_count
+        + effective_user_activity_review_created_count
+        + effective_user_activity_search_count
+        + effective_user_activity_favorite_count
+        + effective_user_activity_restaurant_view_count
+        + effective_user_activity_page_view_count
+        + effective_user_activity_page_dwelled_count
+    )
+    effective_notification_outbox_count = (
+        min(notification_count, scale_count(notification_count, async_log_scale_percent))
+        if include_async_log_data
+        else 0
+    )
+    async_source_failed_percent = 3
+    async_source_pending_percent = 7
+    async_dispatch_failed_percent = 2
+    async_dispatch_pending_percent = 5
+    async_notification_failed_percent = 4
+    async_notification_pending_percent = 8
 
     summary_json = jsonb_literal(
         {
@@ -550,10 +829,19 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
         a("  'USER',")
         a(
             "  CASE WHEN MOD(m.seq, 4) = 0 THEN NULL ELSE "
-            + sql_quote(content["profile_image_base_url"])
-            + " || '/' || "
-            + sql_quote(run_token)
-            + " || '/' || m.id || '.webp' END,"
+            + sql_asset_url_expr(
+                content["profile_image_base_url"],
+                run_token,
+                "'member/profile/' || m.id",
+                "webp",
+                sql_quote(run_token) + " || '-member-profile-' || m.id::TEXT",
+                [
+                    "w=160&q=72&fit=cover",
+                    "w=320&q=78&fit=cover",
+                    "w=640&q=82&fit=cover",
+                ],
+            )
+            + " END,"
         )
         a(
             "  CASE "
@@ -814,12 +1102,24 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
             "  CASE WHEN MOD(((mc.seq - 1) * "
             + str(menu_per_category)
             + ") + m.menu_idx, 4) = 0 THEN NULL ELSE "
-            + sql_quote(content["menu_image_base_url"])
-            + " || '/' || "
-            + sql_quote(run_token)
-            + " || '/' || (((mc.seq - 1) * "
-            + str(menu_per_category)
-            + ") + m.menu_idx) || '.jpg' END,"
+            + sql_asset_url_expr(
+                content["menu_image_base_url"],
+                run_token,
+                "'menu/' || mc.restaurant_id || '/' || (((mc.seq - 1) * "
+                + str(menu_per_category)
+                + ") + m.menu_idx)",
+                "jpg",
+                sql_quote(run_token)
+                + " || '-menu-card-' || mc.restaurant_id::TEXT || '-' || (((mc.seq - 1) * "
+                + str(menu_per_category)
+                + ") + m.menu_idx)::TEXT",
+                [
+                    "w=360&q=74&fit=cover",
+                    "w=720&q=80&fit=cover",
+                    "w=1080&q=84&fit=cover",
+                ],
+            )
+            + " END,"
         )
         a(
             "  (MOD(((mc.seq - 1) * "
@@ -868,10 +1168,19 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
         a("  CASE WHEN MOD(g.seq, 5) = 0 THEN 'OFFICIAL' ELSE 'UNOFFICIAL' END,")
         a(
             "  CASE WHEN MOD(g.seq, 3) = 0 THEN NULL ELSE "
-            + sql_quote(content["group_logo_base_url"])
-            + " || '/' || "
-            + sql_quote(run_token)
-            + " || '/' || g.id || '.png' END,"
+            + sql_asset_url_expr(
+                content["group_logo_base_url"],
+                run_token,
+                "'group/logo/' || g.id",
+                "png",
+                sql_quote(run_token) + " || '-group-logo-' || g.id::TEXT",
+                [
+                    "w=256&q=88&fit=contain",
+                    "w=512&q=90&fit=contain",
+                    "w=1024&q=92&fit=contain",
+                ],
+            )
+            + " END,"
         )
         a(
             "  cfg.sidos[((g.seq - 1) % CARDINALITY(cfg.sidos)) + 1] || ' ' || "
@@ -901,6 +1210,19 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
         a("FROM tmp_dummy_group g")
         a("CROSS JOIN cfg")
         a("ORDER BY g.seq;")
+        a("")
+
+        a("-- Group auth codes for PASSWORD groups")
+        a("INSERT INTO group_auth_code (id, group_id, code, created_at)")
+        a("SELECT")
+        a("  nextval('group_auth_code_seq'),")
+        a("  g.id,")
+        a(f"  {group_join_code_hash_sql},")
+        a("  NOW()")
+        a("FROM tmp_dummy_group tg")
+        a("JOIN \"group\" g ON g.id = tg.id")
+        a("WHERE g.join_type = 'PASSWORD'")
+        a("ORDER BY tg.seq;")
         a("")
 
     if group_count > 0 and subgroup_per_group > 0:
@@ -935,10 +1257,19 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
         a("  '관심사 기반 소규모 모임입니다. 일정 조율 후 함께 방문해요.',")
         a(
             "  CASE WHEN MOD(sg.seq, 3) = 0 THEN NULL ELSE "
-            + sql_quote(content["subgroup_profile_base_url"])
-            + " || '/' || "
-            + sql_quote(run_token)
-            + " || '/' || sg.id || '.jpg' END,"
+            + sql_asset_url_expr(
+                content["subgroup_profile_base_url"],
+                run_token,
+                "'subgroup/profile/' || sg.id",
+                "jpg",
+                sql_quote(run_token) + " || '-subgroup-profile-' || sg.id::TEXT",
+                [
+                    "w=240&q=76&fit=cover",
+                    "w=480&q=82&fit=cover",
+                    "w=960&q=86&fit=cover",
+                ],
+            )
+            + " END,"
         )
         a("  CASE WHEN MOD(sg.seq, 5) = 0 THEN 'PASSWORD' ELSE 'OPEN' END,")
         a(
@@ -1268,7 +1599,7 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
         a("  " + summary_json + ",")
         a("  NOW()")
         a("FROM tmp_dummy_restaurant r")
-        a("ON CONFLICT DO NOTHING;")
+        a("ON CONFLICT (restaurant_id) DO NOTHING;")
         a("")
 
     if notification_count > 0:
@@ -1305,7 +1636,17 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
             + str(safe_group_count)
             + ") + 1) "
             "    ELSE '/notifications' "
-            "  END,"
+            "  END || '?nav=' || "
+            + sql_variant_case_expr(
+                sql_quote(run_token) + " || '-notification-link-' || ns.seq::TEXT",
+                [
+                    "push&surface=inbox",
+                    "digest&surface=badge",
+                    "event&surface=banner",
+                    "recommend&surface=feed",
+                ],
+            )
+            + ","
         )
         a(
             "  "
@@ -1357,6 +1698,1889 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
         a(f"  ON r.seq = (((sfs.seq / {subgroup_divisor}) % {restaurant_count}) + 1)")
         a("ON CONFLICT DO NOTHING;")
         a("")
+
+    if effective_announcement_count > 0:
+        a("-- Announcements")
+        a("WITH cfg AS (")
+        a(
+            f"  SELECT {sql_text_array(['서비스 점검 안내', '추천 피드 개편 안내', '검색 품질 개선 안내', '리뷰 정책 업데이트', '그룹 기능 개선 안내', '알림 설정 개편 안내'])}::TEXT[] AS titles,"
+        )
+        a(
+            f"         {sql_text_array(['새벽 시간대 점검으로 일부 기능이 일시적으로 제한될 수 있습니다.', '점심·회식·카페 상황에 맞춘 추천 이유가 더 또렷하게 노출됩니다.', '지역·카테고리·분위기 필터 조합 검색 응답 속도를 개선했습니다.', '허위·중복 리뷰 신고 기준을 정리해 운영 응답 속도를 높였습니다.', '그룹과 서브그룹 멤버 구성 정보가 더 명확하게 표시됩니다.', '중요 공지와 채팅 알림을 분리해 설정할 수 있도록 구조를 다듬었습니다.'])}::TEXT[] AS bodies"
+        )
+        a(")")
+        a("INSERT INTO announcement (title, content, deleted_at, created_at, updated_at)")
+        a("SELECT")
+        a(
+            "  '시드공지-' || "
+            + sql_quote(run_token)
+            + " || '-' || LPAD((ann.seq + 1)::TEXT, 3, '0') || ' · ' || cfg.titles[(ann.seq % CARDINALITY(cfg.titles)) + 1],"
+        )
+        a(
+            "  cfg.bodies[(ann.seq % CARDINALITY(cfg.bodies)) + 1] || "
+            "' 운영 공지 상세 본문은 관리자 화면과 사용자 공지 목록에서 함께 확인할 수 있습니다.',"
+        )
+        a("  NULL,")
+        a("  NOW() - ((ann.seq % 60) || ' days')::INTERVAL,")
+        a("  NOW() - ((ann.seq % 60) || ' days')::INTERVAL + INTERVAL '10 minutes'")
+        a(f"FROM generate_series(0, {effective_announcement_count - 1}) AS ann(seq)")
+        a("CROSS JOIN cfg;")
+        a("")
+
+    if effective_promotion_count > 0:
+        a("-- Promotions")
+        a("CREATE TEMP TABLE tmp_dummy_promotion (seq INTEGER PRIMARY KEY, id BIGINT NOT NULL) ON COMMIT DROP;")
+        a("INSERT INTO tmp_dummy_promotion (seq, id)")
+        a("SELECT gs, nextval(pg_get_serial_sequence('promotion', 'id'))")
+        a(f"FROM generate_series(1, {effective_promotion_count}) AS gs;")
+        a("")
+        a("WITH cfg AS (")
+        a(
+            f"  SELECT {sql_text_array(['강남 점심 할인전', '퇴근 후 회식 지원전', '주말 브런치 큐레이션', '비 오는 날 국물 추천전', '야식 인기 메뉴전', '신규 그룹 환영 쿠폰'])}::TEXT[] AS titles,"
+        )
+        a(
+            f"         {sql_text_array(['점심 시간 직장인 수요가 높은 지역 맛집을 중심으로 즉시 사용 가능한 쿠폰을 제공합니다.', '팀 회식·소규모 모임에 어울리는 가게를 묶어 추천하고 프로모션 혜택을 함께 노출합니다.', '카페와 브런치 매장을 중심으로 주말 탐색형 추천을 제공합니다.', '국밥·라멘·짬뽕처럼 날씨 맥락이 강한 메뉴를 중심으로 추천합니다.', '늦은 시간대 배달·포장 선호가 높은 메뉴를 중심으로 구성했습니다.', '첫 그룹 생성과 첫 리뷰 작성 흐름을 자연스럽게 유도하는 프로모션입니다.'])}::TEXT[] AS contents,"
+        )
+        a(f"         {sql_text_array(['BOTH', 'PROMOTION_LIST', 'MAIN_BANNER'])}::TEXT[] AS channels")
+        a(")")
+        a(
+            "INSERT INTO promotion "
+            "(id, title, content, landing_url, promotion_start_at, promotion_end_at, publish_status, deleted_at, created_at, updated_at)"
+        )
+        a("SELECT")
+        a("  p.id,")
+        a(
+            "  '시드프로모션-' || "
+            + sql_quote(run_token)
+            + " || '-' || LPAD(p.seq::TEXT, 3, '0') || ' · ' || cfg.titles[((p.seq - 1) % CARDINALITY(cfg.titles)) + 1],"
+        )
+        a("  cfg.contents[((p.seq - 1) % CARDINALITY(cfg.contents)) + 1],")
+        a(
+            "  'https://tasteam.kr/promotions/' || "
+            + sql_quote(run_token)
+            + " || '/' || p.id || '/' || "
+            + sql_hash_slice_expr(
+                sql_quote(run_token) + " || '-promotion-landing-' || p.id::TEXT",
+                1,
+                8,
+            )
+            + " || '?utm=' || "
+            + sql_variant_case_expr(
+                sql_quote(run_token) + " || '-promotion-query-' || p.id::TEXT",
+                [
+                    "app-banner&utm_medium=hero&utm_campaign=lunch-promo",
+                    "app-feed&utm_medium=card&utm_campaign=team-dining",
+                    "push&utm_medium=deeplink&utm_campaign=weekend-brunch",
+                    "search&utm_medium=reco&utm_campaign=night-snack",
+                ],
+            )
+            + ","
+        )
+        a("  NOW() - ((p.seq % 14) || ' days')::INTERVAL,")
+        a("  NOW() + ((20 + (p.seq % 40)) || ' days')::INTERVAL,")
+        a("  CASE WHEN MOD(p.seq, 8) = 0 THEN 'ARCHIVED' WHEN MOD(p.seq, 5) = 0 THEN 'DRAFT' ELSE 'PUBLISHED' END,")
+        a("  NULL,")
+        a("  NOW() - ((p.seq % 30) || ' days')::INTERVAL,")
+        a("  NOW() - ((p.seq % 30) || ' days')::INTERVAL + INTERVAL '15 minutes'")
+        a("FROM tmp_dummy_promotion p")
+        a("CROSS JOIN cfg")
+        a("ORDER BY p.seq;")
+        a("")
+        a("WITH cfg AS (")
+        a(f"  SELECT {sql_text_array(['BOTH', 'PROMOTION_LIST', 'MAIN_BANNER'])}::TEXT[] AS channels")
+        a(")")
+        a(
+            "INSERT INTO promotion_display "
+            "(promotion_id, display_enabled, display_start_at, display_end_at, display_channel, display_priority, deleted_at, created_at, updated_at)"
+        )
+        a("SELECT")
+        a("  p.id,")
+        a("  (MOD(p.seq, 6) <> 0),")
+        a("  NOW() - ((p.seq % 10) || ' days')::INTERVAL,")
+        a("  NOW() + ((15 + (p.seq % 35)) || ' days')::INTERVAL,")
+        a("  cfg.channels[((p.seq - 1) % CARDINALITY(cfg.channels)) + 1],")
+        a("  p.seq,")
+        a("  NULL,")
+        a("  NOW(),")
+        a("  NOW()")
+        a("FROM tmp_dummy_promotion p")
+        a("CROSS JOIN cfg")
+        a("ON CONFLICT (promotion_id) DO NOTHING;")
+        a("")
+        a(
+            "CREATE TEMP TABLE tmp_dummy_promotion_asset "
+            "(seq INTEGER PRIMARY KEY, promotion_id BIGINT NOT NULL, asset_type TEXT NOT NULL, sort_order INTEGER NOT NULL, is_primary BOOLEAN NOT NULL, image_url TEXT NOT NULL, alt_text TEXT NOT NULL) ON COMMIT DROP;"
+        )
+        a("INSERT INTO tmp_dummy_promotion_asset (seq, promotion_id, asset_type, sort_order, is_primary, image_url, alt_text)")
+        a("SELECT")
+        a("  ROW_NUMBER() OVER (ORDER BY p.seq, asset.sort_order),")
+        a("  p.id,")
+        a("  asset.asset_type,")
+        a("  asset.sort_order,")
+        a("  asset.is_primary,")
+        a(
+            "  "
+            + sql_asset_url_expr(
+                content["promotion_image_base_url"],
+                run_token,
+                "'promotion/' || p.id || '/' || LOWER(asset.asset_type)",
+                "webp",
+                sql_quote(run_token)
+                + " || '-promotion-asset-' || p.id::TEXT || '-' || asset.asset_type",
+                [
+                    "w=720&q=76&fit=cover",
+                    "w=1280&q=82&fit=cover",
+                    "w=1440&q=86&fit=cover",
+                ],
+            )
+            + ","
+        )
+        a(
+            "  CASE asset.asset_type "
+            "    WHEN 'BANNER' THEN '프로모션 메인 배너' "
+            "    WHEN 'SPLASH' THEN '스플래시 노출 이미지' "
+            "    ELSE '프로모션 상세 이미지' "
+            "  END"
+        )
+        a("FROM tmp_dummy_promotion p")
+        a("CROSS JOIN (VALUES ('BANNER', 0, true), ('SPLASH', 1, false), ('DETAIL', 2, false)) AS asset(asset_type, sort_order, is_primary);")
+        a("")
+        a(
+            "INSERT INTO promotion_asset "
+            "(promotion_id, asset_type, image_url, alt_text, sort_order, is_primary, deleted_at, created_at, updated_at)"
+        )
+        a("SELECT")
+        a("  promotion_id,")
+        a("  asset_type,")
+        a("  image_url,")
+        a("  alt_text,")
+        a("  sort_order,")
+        a("  is_primary,")
+        a("  NULL,")
+        a("  NOW(),")
+        a("  NOW()")
+        a("FROM tmp_dummy_promotion_asset")
+        a("ORDER BY seq;")
+        a("")
+
+    if effective_push_target_count > 0:
+        a("-- Push notification targets")
+        a("INSERT INTO push_notification_target (member_id, device_id, fcm_token, created_at)")
+        a("SELECT")
+        a("  seeded.member_id,")
+        a(
+            "  'device-' || "
+            + sql_quote(run_token)
+            + " || '-slot-' || LPAD(("
+            + sql_bucket_expr(
+                sql_quote(run_token) + " || '-push-device-' || seeded.member_id::TEXT",
+                1,
+                24,
+                1,
+            )
+            + ")::TEXT, 2, '0') || '-' || "
+            + sql_hash_slice_expr(
+                sql_quote(run_token) + " || '-push-device-' || seeded.member_id::TEXT",
+                1,
+                16,
+            )
+            + ","
+        )
+        a(
+            "  'fcm-' || "
+            + sql_quote(run_token)
+            + " || '-' || "
+            + sql_hash_slice_expr(
+                sql_quote(run_token) + " || '-push-fcm-' || seeded.member_id::TEXT",
+                1,
+                24,
+            )
+            + " || "
+            + sql_hash_slice_expr(
+                sql_quote(run_token) + " || '-push-fcm-tail-' || seeded.member_id::TEXT",
+                1,
+                24,
+            )
+            + ","
+        )
+        a("  NOW() - ((seeded.rn % 30) || ' days')::INTERVAL")
+        a("FROM (")
+        a("  SELECT DISTINCT m.id AS member_id, ROW_NUMBER() OVER (ORDER BY m.seq) AS rn")
+        a("  FROM tmp_dummy_member m")
+        a("  JOIN member_notification_preference pref")
+        a("    ON pref.member_id = m.id")
+        a("   AND pref.channel = 'PUSH'")
+        a("   AND pref.is_enabled = true")
+        a(") seeded")
+        a(f"WHERE seeded.rn <= {effective_push_target_count}")
+        a("ON CONFLICT (member_id, device_id) DO NOTHING;")
+        a("")
+
+    if effective_refresh_token_count > 0:
+        a("-- Refresh tokens")
+        a(
+            "INSERT INTO refresh_token "
+            "(id, member_id, token_hash, token_family_id, expires_at, rotated_at, revoked_at, created_at)"
+        )
+        a("SELECT")
+        a("  nextval('refresh_token_seq'),")
+        a("  m.id,")
+        a("  " + sql_hex64_expr(sql_quote(run_token) + " || '-refresh-' || m.seq::TEXT") + ",")
+        a("  " + sql_hex64_expr(sql_quote(run_token) + " || '-family-' || m.seq::TEXT") + ",")
+        a("  NOW() + ((20 + (m.seq % 40)) || ' days')::INTERVAL,")
+        a("  CASE WHEN MOD(m.seq, 9) = 0 THEN NOW() - ((m.seq % 5) || ' days')::INTERVAL ELSE NULL END,")
+        a("  CASE WHEN MOD(m.seq, 17) = 0 THEN NOW() - ((m.seq % 3) || ' days')::INTERVAL ELSE NULL END,")
+        a("  NOW() - ((m.seq % 25) || ' days')::INTERVAL")
+        a("FROM tmp_dummy_member m")
+        a(f"WHERE m.seq <= {effective_refresh_token_count}")
+        a("ON CONFLICT (token_hash) DO NOTHING;")
+        a("")
+
+    if effective_schedule_override_count > 0:
+        a("-- Restaurant schedule overrides")
+        a(
+            "INSERT INTO restaurant_schedule_override "
+            "(restaurant_id, date, open_time, close_time, is_closed, reason, created_at, updated_at)"
+        )
+        a("SELECT")
+        a("  r.id,")
+        a("  CURRENT_DATE + ((r.seq % 21) + 1),")
+        a("  CASE WHEN MOD(r.seq, 4) = 0 THEN NULL ELSE TIME '10:30:00' END,")
+        a("  CASE WHEN MOD(r.seq, 4) = 0 THEN NULL ELSE TIME '15:30:00' END,")
+        a("  (MOD(r.seq, 4) = 0),")
+        a(
+            "  '시드예외-"
+            + run_token
+            + "-' || CASE MOD(r.seq, 5) "
+            "    WHEN 0 THEN '임시 휴무' "
+            "    WHEN 1 THEN '브레이크타임 조정' "
+            "    WHEN 2 THEN '단체 예약 운영' "
+            "    WHEN 3 THEN '재료 소진 대응' "
+            "    ELSE '공휴일 운영 시간 조정' "
+            "  END,"
+        )
+        a("  NOW(),")
+        a("  NOW()")
+        a("FROM tmp_dummy_restaurant r")
+        a(f"WHERE r.seq <= {effective_schedule_override_count}")
+        a("ON CONFLICT (restaurant_id, date) DO NOTHING;")
+        a("")
+
+    if restaurant_count > 0:
+        a("-- Restaurant AI comparison / snapshots")
+        a("WITH cfg AS (")
+        a(
+            f"  SELECT {sql_text_array(['점심 회전이 빠른 편입니다.', '분위기가 안정적인 회식용 매장입니다.', '혼밥 접근성이 좋은 편입니다.', '대화 중심 모임에 어울리는 공간입니다.', '대표 메뉴 만족도가 높습니다.', '야간 방문 수요가 꾸준한 편입니다.'])}::TEXT[] AS comparison_lines,"
+        )
+        a(
+            f"         {sql_text_array(['매운맛 선호 수요가 높습니다.', '국물 메뉴 반응이 좋습니다.', '가성비 평가가 꾸준합니다.', '좌석 간격 만족도가 높습니다.', '주차 편의성 의견이 갈립니다.', '재방문 의사가 높은 편입니다.'])}::TEXT[] AS feature_lines"
+        )
+        a(")")
+        a(
+            "INSERT INTO restaurant_comparison "
+            "(restaurant_id, model_version, comparison_json, analyzed_at)"
+        )
+        a("SELECT")
+        a("  r.id,")
+        a("  'dummy-v2',")
+        a(
+            "  jsonb_build_object("
+            "'category_lift', jsonb_build_object("
+            "'service', ROUND(((5 + (r.seq % 8))::numeric / 100), 2), "
+            "'price', ROUND(((4 + (r.seq % 6))::numeric / 100), 2), "
+            "'food', ROUND(((8 + (r.seq % 9))::numeric / 100), 2)"
+            "), "
+            "'comparison_display', jsonb_build_array(cfg.comparison_lines[((r.seq - 1) % CARDINALITY(cfg.comparison_lines)) + 1]), "
+            "'total_candidates', 18 + (r.seq % 9), "
+            "'validated_count', 11 + (r.seq % 7)"
+            "),"
+        )
+        a("  NOW() - ((r.seq % 14) || ' days')::INTERVAL")
+        a("FROM tmp_dummy_restaurant r")
+        a("CROSS JOIN cfg")
+        a("ON CONFLICT (restaurant_id) DO NOTHING;")
+        a("")
+        a("DO $$")
+        a("BEGIN")
+        a("  IF to_regclass('public.restaurant_ai_results') IS NOT NULL THEN")
+        a(
+            "    INSERT INTO restaurant_ai_results "
+            "(id, restaurant_id, restaurant_name, summary_json, sentiment_json, comparison_json, errors_json)"
+        )
+        a("    SELECT")
+        a("      COALESCE((SELECT MAX(id) FROM restaurant_ai_results), 0) + ROW_NUMBER() OVER (ORDER BY r.seq),")
+        a("      r.id::INTEGER,")
+        a("      rt.name,")
+        a("      COALESCE(rs.summary_json::TEXT, '{}'::jsonb::TEXT),")
+        a(
+            "      jsonb_build_object("
+            "'positive_percent', rse.positive_percent, "
+            "'negative_percent', rse.negative_percent, "
+            "'neutral_percent', rse.neutral_percent, "
+            "'positive_count', rse.positive_count, "
+            "'negative_count', rse.negative_count, "
+            "'neutral_count', rse.neutral_count"
+            ")::TEXT,"
+        )
+        a("      COALESCE(rc.comparison_json::TEXT, '{}'::jsonb::TEXT),")
+        a("      CASE WHEN MOD(r.seq, 37) = 0 THEN '[\"vector sync pending\"]' ELSE '[]' END")
+        a("    FROM tmp_dummy_restaurant r")
+        a("    JOIN restaurant rt ON rt.id = r.id")
+        a("    JOIN restaurant_review_summary rs ON rs.restaurant_id = r.id AND rs.vector_epoch = 0")
+        a("    JOIN restaurant_review_sentiment rse ON rse.restaurant_id = r.id AND rse.vector_epoch = 0")
+        a("    LEFT JOIN restaurant_comparison rc ON rc.restaurant_id = r.id")
+        a("    WHERE NOT EXISTS (SELECT 1 FROM restaurant_ai_results existing WHERE existing.restaurant_id = r.id::INTEGER);")
+        a("  END IF;")
+        a("")
+        a("  IF to_regclass('public.ai_restaurant_feature') IS NOT NULL THEN")
+        a("    WITH cfg AS (")
+        a(
+            f"      SELECT {sql_text_array(['매운맛 선호 수요가 높습니다.', '국물 메뉴 반응이 좋습니다.', '가성비 평가가 꾸준합니다.', '좌석 간격 만족도가 높습니다.', '주차 편의성 의견이 갈립니다.', '재방문 의사가 높은 편입니다.'])}::TEXT[] AS feature_lines"
+        )
+        a("    )")
+        a("    INSERT INTO ai_restaurant_feature (id, restaurant_id, content, created_at, updated_at)")
+        a("    SELECT")
+        a("      COALESCE((SELECT MAX(id) FROM ai_restaurant_feature), 0) + ROW_NUMBER() OVER (ORDER BY r.seq),")
+        a("      r.id,")
+        a(
+            "      cfg.feature_lines[((r.seq - 1) % CARDINALITY(cfg.feature_lines)) + 1] || "
+            "' · 리뷰 키워드 조합: ' || "
+            "CASE MOD(r.seq, 4) "
+            "  WHEN 0 THEN '친절함/맛있음/분위기 좋음' "
+            "  WHEN 1 THEN '가성비 좋음/바로 입장/점심' "
+            "  WHEN 2 THEN '대기 짧음/동료/저녁' "
+            "  ELSE '혼밥/데이트/회식' "
+            "END,"
+        )
+        a("      NOW(),")
+        a("      NOW()")
+        a("    FROM tmp_dummy_restaurant r")
+        a("    CROSS JOIN cfg")
+        a("    WHERE NOT EXISTS (SELECT 1 FROM ai_restaurant_feature existing WHERE existing.restaurant_id = r.id);")
+        a("  END IF;")
+        a("END $$;")
+        a("")
+
+    if effective_report_count > 0:
+        a("-- Reports")
+        a("WITH cfg AS (")
+        a(
+            f"  SELECT {sql_text_array(['BUG', 'INAPPROPRIATE_REVIEW', 'INAPPROPRIATE_CONTENT', 'RESTAURANT_INFO', 'SPAM', 'OTHER'])}::TEXT[] AS categories,"
+        )
+        a(
+            f"         {sql_text_array(['PENDING', 'IN_PROGRESS', 'RESOLVED', 'REJECTED'])}::TEXT[] AS statuses"
+        )
+        a(")")
+        a("INSERT INTO report (member_id, category, content, status, created_at, updated_at)")
+        a("SELECT")
+        a("  m.id,")
+        a("  cfg.categories[(rep.seq % CARDINALITY(cfg.categories)) + 1],")
+        a(
+            "  CASE cfg.categories[(rep.seq % CARDINALITY(cfg.categories)) + 1] "
+            "    WHEN 'BUG' THEN '시드신고-" + run_token + "- 앱 홈에서 추천 섹션 정렬이 기대와 다르게 보입니다.' "
+            "    WHEN 'INAPPROPRIATE_REVIEW' THEN '시드신고-" + run_token + "- 광고성 문구가 과도한 리뷰가 보여 확인이 필요합니다.' "
+            "    WHEN 'INAPPROPRIATE_CONTENT' THEN '시드신고-" + run_token + "- 채팅 내 부적절 표현 신고 테스트용 데이터입니다.' "
+            "    WHEN 'RESTAURANT_INFO' THEN '시드신고-" + run_token + "- 영업시간 또는 주소 정보가 실제와 다를 수 있어 검토가 필요합니다.' "
+            "    WHEN 'SPAM' THEN '시드신고-" + run_token + "- 반복성 홍보성 활동이 감지되어 차단 정책 검토가 필요합니다.' "
+            "    ELSE '시드신고-" + run_token + "- 기타 운영 확인이 필요한 이슈를 기록한 테스트 데이터입니다.' "
+            "  END,"
+        )
+        a("  CASE WHEN MOD(rep.seq, 11) = 0 THEN 'REJECTED' WHEN MOD(rep.seq, 7) = 0 THEN 'RESOLVED' WHEN MOD(rep.seq, 5) = 0 THEN 'IN_PROGRESS' ELSE 'PENDING' END,")
+        a("  NOW() - ((rep.seq % 45) || ' days')::INTERVAL,")
+        a("  NOW() - ((rep.seq % 45) || ' days')::INTERVAL + ((rep.seq % 180) || ' minutes')::INTERVAL")
+        a(f"FROM generate_series(0, {effective_report_count - 1}) AS rep(seq)")
+        a("JOIN tmp_dummy_member m")
+        a(f"  ON m.seq = ((rep.seq % {member_count}) + 1)")
+        a("CROSS JOIN cfg;")
+        a("")
+
+    if effective_restaurant_image_count > 0:
+        a("-- Restaurant images / domain images")
+        a(
+            "CREATE TEMP TABLE tmp_restaurant_domain_image "
+            "(seq INTEGER PRIMARY KEY, restaurant_id BIGINT NOT NULL, image_id BIGINT NOT NULL, image_url TEXT NOT NULL, sort_order INTEGER NOT NULL, file_uuid UUID NOT NULL) ON COMMIT DROP;"
+        )
+        a("INSERT INTO tmp_restaurant_domain_image (seq, restaurant_id, image_id, image_url, sort_order, file_uuid)")
+        a("SELECT")
+        a("  seeded.rn,")
+        a("  seeded.restaurant_id,")
+        a("  seeded.image_id,")
+        a("  seeded.image_url,")
+        a("  seeded.sort_order,")
+        a("  seeded.file_uuid")
+        a("FROM (")
+        a("  SELECT")
+        a("    ROW_NUMBER() OVER (ORDER BY r.seq, img.idx) AS rn,")
+        a("    r.id AS restaurant_id,")
+        a("    nextval('image_seq') AS image_id,")
+        a(
+            "    "
+            + sql_asset_url_expr(
+                content["restaurant_image_base_url"],
+                run_token,
+                "'restaurant/' || r.id || '/gallery-' || (img.idx - 1)",
+                "webp",
+                sql_quote(run_token) + " || '-restaurant-image-' || r.id::TEXT || '-' || img.idx::TEXT",
+                [
+                    "w=720&q=76&fit=cover",
+                    "w=1280&q=82&fit=cover",
+                    "w=1600&q=86&fit=cover",
+                ],
+            )
+            + " AS image_url,"
+        )
+        a("    img.idx - 1 AS sort_order,")
+        a(
+            "    "
+            + sql_uuid_expr(sql_quote(run_token) + " || '-restaurant-image-' || r.id::TEXT || '-' || img.idx::TEXT")
+            + " AS file_uuid"
+        )
+        a("  FROM tmp_dummy_restaurant r")
+        a("  CROSS JOIN generate_series(1, 3) AS img(idx)")
+        a(") seeded")
+        a(f"WHERE seeded.rn <= {effective_restaurant_image_count};")
+        a("")
+        a(
+            "INSERT INTO image "
+            "(id, file_name, file_size, file_type, storage_key, file_uuid, status, purpose, created_at, updated_at)"
+        )
+        a("SELECT")
+        a("  image_id,")
+        a(
+            "  'restaurant-' || restaurant_id || '-' || (sort_order + 1) || '-' || "
+            + sql_hash_slice_expr(
+                sql_quote(run_token) + " || '-restaurant-image-file-' || restaurant_id::TEXT || '-' || sort_order::TEXT",
+                1,
+                6,
+            )
+            + " || '.webp',"
+        )
+        a("  180000 + ((seq % 20) * 4000),")
+        a("  'image/webp',")
+        a(
+            "  "
+            + sql_storage_key_expr(
+                "uploads/restaurant/image",
+                run_token,
+                "'restaurant/' || restaurant_id || '/gallery-' || (sort_order + 1)",
+                "webp",
+                sql_quote(run_token) + " || '-restaurant-image-storage-' || restaurant_id::TEXT || '-' || sort_order::TEXT",
+            )
+            + ","
+        )
+        a("  file_uuid,")
+        a("  'ACTIVE',")
+        a("  'RESTAURANT_IMAGE',")
+        a("  NOW(),")
+        a("  NOW()")
+        a("FROM tmp_restaurant_domain_image;")
+        a("")
+        a("INSERT INTO domain_image (id, domain_type, domain_id, image_id, sort_order, created_at)")
+        a("SELECT")
+        a("  nextval('domain_image_seq'),")
+        a("  'RESTAURANT',")
+        a("  restaurant_id,")
+        a("  image_id,")
+        a("  sort_order,")
+        a("  NOW()")
+        a("FROM tmp_restaurant_domain_image")
+        a("ON CONFLICT ON CONSTRAINT uq_domain_image_link DO NOTHING;")
+        a("")
+        a("DO $$")
+        a("BEGIN")
+        a("  IF to_regclass('public.restaurant_image') IS NOT NULL THEN")
+        a(
+            "    INSERT INTO restaurant_image "
+            "(id, restaurant_id, image_url, sort_order, deleted_at, created_at)"
+        )
+        a("    SELECT")
+        a("      COALESCE((SELECT MAX(id) FROM restaurant_image), 0) + seq,")
+        a("      restaurant_id,")
+        a("      image_url,")
+        a("      sort_order,")
+        a("      NULL,")
+        a("      NOW()")
+        a("    FROM tmp_restaurant_domain_image;")
+        a("  END IF;")
+        a("END $$;")
+        a("")
+
+    if effective_review_image_count > 0:
+        a("-- Review images / domain images")
+        a(
+            "CREATE TEMP TABLE tmp_review_domain_image "
+            "(seq INTEGER PRIMARY KEY, review_id BIGINT NOT NULL, image_id BIGINT NOT NULL, image_url TEXT NOT NULL, file_uuid UUID NOT NULL) ON COMMIT DROP;"
+        )
+        a("INSERT INTO tmp_review_domain_image (seq, review_id, image_id, image_url, file_uuid)")
+        a("SELECT")
+        a("  rv.seq,")
+        a("  rv.id,")
+        a("  nextval('image_seq'),")
+        a(
+            "  "
+            + sql_asset_url_expr(
+                content["review_image_base_url"],
+                run_token,
+                "'review/' || rv.id",
+                "webp",
+                sql_quote(run_token) + " || '-review-image-' || rv.id::TEXT",
+                [
+                    "w=640&q=74&fit=cover",
+                    "w=1080&q=80&fit=cover",
+                    "w=1440&q=84&fit=cover",
+                ],
+            )
+            + ","
+        )
+        a(
+            "  "
+            + sql_uuid_expr(sql_quote(run_token) + " || '-review-image-' || rv.id::TEXT")
+        )
+        a("FROM tmp_dummy_review rv")
+        a(f"WHERE rv.seq <= {effective_review_image_count};")
+        a("")
+        a(
+            "INSERT INTO image "
+            "(id, file_name, file_size, file_type, storage_key, file_uuid, status, purpose, created_at, updated_at)"
+        )
+        a("SELECT")
+        a("  image_id,")
+        a(
+            "  'review-' || review_id || '-' || "
+            + sql_hash_slice_expr(
+                sql_quote(run_token) + " || '-review-image-file-' || review_id::TEXT",
+                1,
+                6,
+            )
+            + " || '.webp',"
+        )
+        a("  120000 + ((seq % 15) * 3000),")
+        a("  'image/webp',")
+        a(
+            "  "
+            + sql_storage_key_expr(
+                "uploads/review/image",
+                run_token,
+                "'review/' || review_id",
+                "webp",
+                sql_quote(run_token) + " || '-review-image-storage-' || review_id::TEXT",
+            )
+            + ","
+        )
+        a("  file_uuid,")
+        a("  'ACTIVE',")
+        a("  'REVIEW_IMAGE',")
+        a("  NOW(),")
+        a("  NOW()")
+        a("FROM tmp_review_domain_image;")
+        a("")
+        a("INSERT INTO domain_image (id, domain_type, domain_id, image_id, sort_order, created_at)")
+        a("SELECT")
+        a("  nextval('domain_image_seq'),")
+        a("  'REVIEW',")
+        a("  review_id,")
+        a("  image_id,")
+        a("  0,")
+        a("  NOW()")
+        a("FROM tmp_review_domain_image")
+        a("ON CONFLICT ON CONSTRAINT uq_domain_image_link DO NOTHING;")
+        a("")
+        a("DO $$")
+        a("BEGIN")
+        a("  IF to_regclass('public.review_image') IS NOT NULL THEN")
+        a("    INSERT INTO review_image (id, review_id, image_url, deleted_at, created_at)")
+        a("    SELECT")
+        a("      COALESCE((SELECT MAX(id) FROM review_image), 0) + seq,")
+        a("      review_id,")
+        a("      image_url,")
+        a("      NULL,")
+        a("      NOW()")
+        a("    FROM tmp_review_domain_image;")
+        a("  END IF;")
+        a("END $$;")
+        a("")
+
+    if effective_member_image_count > 0:
+        a("-- Member profile images / domain images")
+        a(
+            "CREATE TEMP TABLE tmp_member_domain_image "
+            "(seq INTEGER PRIMARY KEY, member_id BIGINT NOT NULL, image_id BIGINT NOT NULL, file_uuid UUID NOT NULL) ON COMMIT DROP;"
+        )
+        a("INSERT INTO tmp_member_domain_image (seq, member_id, image_id, file_uuid)")
+        a("SELECT")
+        a("  m.seq,")
+        a("  m.id,")
+        a("  nextval('image_seq'),")
+        a(
+            "  "
+            + sql_uuid_expr(sql_quote(run_token) + " || '-member-image-' || m.id::TEXT")
+        )
+        a("FROM tmp_dummy_member m")
+        a(f"WHERE m.seq <= {effective_member_image_count};")
+        a("")
+        a(
+            "INSERT INTO image "
+            "(id, file_name, file_size, file_type, storage_key, file_uuid, status, purpose, created_at, updated_at)"
+        )
+        a("SELECT")
+        a("  image_id,")
+        a(
+            "  'member-' || member_id || '-' || "
+            + sql_hash_slice_expr(
+                sql_quote(run_token) + " || '-member-image-file-' || member_id::TEXT",
+                1,
+                6,
+            )
+            + " || '.webp',"
+        )
+        a("  96000 + ((seq % 10) * 2000),")
+        a("  'image/webp',")
+        a(
+            "  "
+            + sql_storage_key_expr(
+                "uploads/member/profile",
+                run_token,
+                "'member/' || member_id",
+                "webp",
+                sql_quote(run_token) + " || '-member-image-storage-' || member_id::TEXT",
+            )
+            + ","
+        )
+        a("  file_uuid,")
+        a("  'ACTIVE',")
+        a("  'PROFILE_IMAGE',")
+        a("  NOW(),")
+        a("  NOW()")
+        a("FROM tmp_member_domain_image;")
+        a("")
+        a("INSERT INTO domain_image (id, domain_type, domain_id, image_id, sort_order, created_at)")
+        a("SELECT nextval('domain_image_seq'), 'MEMBER', member_id, image_id, 0, NOW() FROM tmp_member_domain_image")
+        a("ON CONFLICT ON CONSTRAINT uq_domain_image_link DO NOTHING;")
+        a("")
+
+    if effective_group_image_count > 0:
+        a("-- Group images / domain images")
+        a(
+            "CREATE TEMP TABLE tmp_group_domain_image "
+            "(seq INTEGER PRIMARY KEY, group_id BIGINT NOT NULL, image_id BIGINT NOT NULL, file_uuid UUID NOT NULL) ON COMMIT DROP;"
+        )
+        a("INSERT INTO tmp_group_domain_image (seq, group_id, image_id, file_uuid)")
+        a("SELECT")
+        a("  g.seq,")
+        a("  g.id,")
+        a("  nextval('image_seq'),")
+        a(
+            "  "
+            + sql_uuid_expr(sql_quote(run_token) + " || '-group-image-' || g.id::TEXT")
+        )
+        a("FROM tmp_dummy_group g")
+        a(f"WHERE g.seq <= {effective_group_image_count};")
+        a("")
+        a(
+            "INSERT INTO image "
+            "(id, file_name, file_size, file_type, storage_key, file_uuid, status, purpose, created_at, updated_at)"
+        )
+        a("SELECT")
+        a("  image_id,")
+        a(
+            "  'group-' || group_id || '-' || "
+            + sql_hash_slice_expr(
+                sql_quote(run_token) + " || '-group-image-file-' || group_id::TEXT",
+                1,
+                6,
+            )
+            + " || '.png',"
+        )
+        a("  140000 + ((seq % 12) * 2500),")
+        a("  'image/png',")
+        a(
+            "  "
+            + sql_storage_key_expr(
+                "uploads/group/image",
+                run_token,
+                "'group/' || group_id",
+                "png",
+                sql_quote(run_token) + " || '-group-image-storage-' || group_id::TEXT",
+            )
+            + ","
+        )
+        a("  file_uuid,")
+        a("  'ACTIVE',")
+        a("  'GROUP_IMAGE',")
+        a("  NOW(),")
+        a("  NOW()")
+        a("FROM tmp_group_domain_image;")
+        a("")
+        a("INSERT INTO domain_image (id, domain_type, domain_id, image_id, sort_order, created_at)")
+        a("SELECT nextval('domain_image_seq'), 'GROUP', group_id, image_id, 0, NOW() FROM tmp_group_domain_image")
+        a("ON CONFLICT ON CONSTRAINT uq_domain_image_link DO NOTHING;")
+        a("")
+
+    if effective_subgroup_image_count > 0:
+        a("-- Subgroup images / domain images")
+        a(
+            "CREATE TEMP TABLE tmp_subgroup_domain_image "
+            "(seq INTEGER PRIMARY KEY, subgroup_id BIGINT NOT NULL, image_id BIGINT NOT NULL, file_uuid UUID NOT NULL) ON COMMIT DROP;"
+        )
+        a("INSERT INTO tmp_subgroup_domain_image (seq, subgroup_id, image_id, file_uuid)")
+        a("SELECT")
+        a("  sg.seq,")
+        a("  sg.id,")
+        a("  nextval('image_seq'),")
+        a(
+            "  "
+            + sql_uuid_expr(sql_quote(run_token) + " || '-subgroup-image-' || sg.id::TEXT")
+        )
+        a("FROM tmp_dummy_subgroup sg")
+        a(f"WHERE sg.seq <= {effective_subgroup_image_count};")
+        a("")
+        a(
+            "INSERT INTO image "
+            "(id, file_name, file_size, file_type, storage_key, file_uuid, status, purpose, created_at, updated_at)"
+        )
+        a("SELECT")
+        a("  image_id,")
+        a(
+            "  'subgroup-' || subgroup_id || '-' || "
+            + sql_hash_slice_expr(
+                sql_quote(run_token) + " || '-subgroup-image-file-' || subgroup_id::TEXT",
+                1,
+                6,
+            )
+            + " || '.jpg',"
+        )
+        a("  128000 + ((seq % 12) * 2400),")
+        a("  'image/jpeg',")
+        a(
+            "  "
+            + sql_storage_key_expr(
+                "uploads/subgroup/image",
+                run_token,
+                "'subgroup/' || subgroup_id",
+                "jpg",
+                sql_quote(run_token) + " || '-subgroup-image-storage-' || subgroup_id::TEXT",
+            )
+            + ","
+        )
+        a("  file_uuid,")
+        a("  'ACTIVE',")
+        a("  'GROUP_IMAGE',")
+        a("  NOW(),")
+        a("  NOW()")
+        a("FROM tmp_subgroup_domain_image;")
+        a("")
+        a("INSERT INTO domain_image (id, domain_type, domain_id, image_id, sort_order, created_at)")
+        a("SELECT nextval('domain_image_seq'), 'SUBGROUP', subgroup_id, image_id, 0, NOW() FROM tmp_subgroup_domain_image")
+        a("ON CONFLICT ON CONSTRAINT uq_domain_image_link DO NOTHING;")
+        a("")
+
+    if effective_menu_domain_image_count > 0:
+        a("-- Menu domain images")
+        a(
+            "CREATE TEMP TABLE tmp_menu_domain_image "
+            "(seq INTEGER PRIMARY KEY, menu_id BIGINT NOT NULL, image_id BIGINT NOT NULL, file_uuid UUID NOT NULL) ON COMMIT DROP;"
+        )
+        a("INSERT INTO tmp_menu_domain_image (seq, menu_id, image_id, file_uuid)")
+        a("SELECT")
+        a("  seeded.rn,")
+        a("  seeded.menu_id,")
+        a("  nextval('image_seq'),")
+        a(
+            "  "
+            + sql_uuid_expr(sql_quote(run_token) + " || '-menu-image-' || seeded.menu_id::TEXT")
+        )
+        a("FROM (")
+        a("  SELECT m.id AS menu_id, ROW_NUMBER() OVER (ORDER BY m.id) AS rn")
+        a("  FROM menu m")
+        a("  JOIN tmp_dummy_menu_category mc ON mc.id = m.category_id")
+        a(") seeded")
+        a(f"WHERE seeded.rn <= {effective_menu_domain_image_count};")
+        a("")
+        a(
+            "INSERT INTO image "
+            "(id, file_name, file_size, file_type, storage_key, file_uuid, status, purpose, created_at, updated_at)"
+        )
+        a("SELECT")
+        a("  image_id,")
+        a(
+            "  'menu-' || menu_id || '-' || "
+            + sql_hash_slice_expr(
+                sql_quote(run_token) + " || '-menu-image-file-' || menu_id::TEXT",
+                1,
+                6,
+            )
+            + " || '.jpg',"
+        )
+        a("  110000 + ((seq % 10) * 2100),")
+        a("  'image/jpeg',")
+        a(
+            "  "
+            + sql_storage_key_expr(
+                "uploads/menu/image",
+                run_token,
+                "'menu/' || menu_id",
+                "jpg",
+                sql_quote(run_token) + " || '-menu-image-storage-' || menu_id::TEXT",
+            )
+            + ","
+        )
+        a("  file_uuid,")
+        a("  'ACTIVE',")
+        a("  'MENU_IMAGE',")
+        a("  NOW(),")
+        a("  NOW()")
+        a("FROM tmp_menu_domain_image;")
+        a("")
+        a("INSERT INTO domain_image (id, domain_type, domain_id, image_id, sort_order, created_at)")
+        a("SELECT nextval('domain_image_seq'), 'MENU', menu_id, image_id, 0, NOW() FROM tmp_menu_domain_image")
+        a("ON CONFLICT ON CONSTRAINT uq_domain_image_link DO NOTHING;")
+        a("")
+
+    if effective_chat_image_count > 0:
+        a("-- Chat message images / files")
+        a(
+            "CREATE TEMP TABLE tmp_chat_domain_image "
+            "(seq INTEGER PRIMARY KEY, chat_message_id BIGINT NOT NULL, image_id BIGINT NOT NULL, image_url TEXT NOT NULL, file_uuid UUID NOT NULL) ON COMMIT DROP;"
+        )
+        a("INSERT INTO tmp_chat_domain_image (seq, chat_message_id, image_id, image_url, file_uuid)")
+        a("SELECT")
+        a("  seeded.rn,")
+        a("  seeded.chat_message_id,")
+        a("  nextval('image_seq'),")
+        a(
+            "  "
+            + sql_asset_url_expr(
+                content["chat_image_base_url"],
+                run_token,
+                "'chat/' || seeded.chat_message_id",
+                "webp",
+                sql_quote(run_token) + " || '-chat-image-' || seeded.chat_message_id::TEXT",
+                [
+                    "w=480&q=72&fit=cover",
+                    "w=960&q=78&fit=cover",
+                    "w=1280&q=82&fit=cover",
+                ],
+            )
+            + ","
+        )
+        a(
+            "  "
+            + sql_uuid_expr(sql_quote(run_token) + " || '-chat-image-' || seeded.chat_message_id::TEXT")
+        )
+        a("FROM (")
+        a("  SELECT cm.id AS chat_message_id, ROW_NUMBER() OVER (ORDER BY cm.id) AS rn")
+        a("  FROM chat_message cm")
+        a("  JOIN tmp_dummy_chat_room cr ON cr.id = cm.chat_room_id")
+        a(") seeded")
+        a(f"WHERE seeded.rn <= {effective_chat_image_count};")
+        a("")
+        a(
+            "INSERT INTO image "
+            "(id, file_name, file_size, file_type, storage_key, file_uuid, status, purpose, created_at, updated_at)"
+        )
+        a("SELECT")
+        a("  image_id,")
+        a(
+            "  'chat-' || chat_message_id || '-' || "
+            + sql_hash_slice_expr(
+                sql_quote(run_token) + " || '-chat-image-file-' || chat_message_id::TEXT",
+                1,
+                6,
+            )
+            + " || '.webp',"
+        )
+        a("  84000 + ((seq % 8) * 1800),")
+        a("  'image/webp',")
+        a(
+            "  "
+            + sql_storage_key_expr(
+                "uploads/chat/image",
+                run_token,
+                "'chat/' || chat_message_id",
+                "webp",
+                sql_quote(run_token) + " || '-chat-image-storage-' || chat_message_id::TEXT",
+            )
+            + ","
+        )
+        a("  file_uuid,")
+        a("  'ACTIVE',")
+        a("  'CHAT_IMAGE',")
+        a("  NOW(),")
+        a("  NOW()")
+        a("FROM tmp_chat_domain_image;")
+        a("")
+        a("INSERT INTO domain_image (id, domain_type, domain_id, image_id, sort_order, created_at)")
+        a("SELECT nextval('domain_image_seq'), 'CHAT_MESSAGE', chat_message_id, image_id, 0, NOW() FROM tmp_chat_domain_image")
+        a("ON CONFLICT ON CONSTRAINT uq_domain_image_link DO NOTHING;")
+        a("")
+        a(
+            "INSERT INTO chat_message_file "
+            "(id, chat_message_id, file_type, file_url, created_at, deleted_at, file_uuid, domain_image_id)"
+        )
+        a("SELECT")
+        a("  nextval('chat_message_file_id_seq'),")
+        a("  c.chat_message_id,")
+        a("  'IMAGE',")
+        a("  c.image_url,")
+        a("  NOW(),")
+        a("  NULL,")
+        a("  c.file_uuid::TEXT,")
+        a("  d.id")
+        a("FROM tmp_chat_domain_image c")
+        a("JOIN domain_image d")
+        a("  ON d.domain_type = 'CHAT_MESSAGE'")
+        a(" AND d.domain_id = c.chat_message_id")
+        a(" AND d.image_id = c.image_id;")
+        a("")
+
+    if effective_promotion_count > 0:
+        a("-- Promotion common assets / domain images")
+        a(
+            "CREATE TEMP TABLE tmp_promotion_domain_image "
+            "(seq INTEGER PRIMARY KEY, promotion_id BIGINT NOT NULL, image_id BIGINT NOT NULL, image_url TEXT NOT NULL, sort_order INTEGER NOT NULL, file_uuid UUID NOT NULL) ON COMMIT DROP;"
+        )
+        a("INSERT INTO tmp_promotion_domain_image (seq, promotion_id, image_id, image_url, sort_order, file_uuid)")
+        a("SELECT")
+        a("  asset.seq,")
+        a("  asset.promotion_id,")
+        a("  nextval('image_seq'),")
+        a("  asset.image_url,")
+        a("  asset.sort_order,")
+        a(
+            "  "
+            + sql_uuid_expr(sql_quote(run_token) + " || '-promotion-image-' || asset.promotion_id::TEXT || '-' || asset.asset_type")
+        )
+        a("FROM tmp_dummy_promotion_asset asset;")
+        a("")
+        a(
+            "INSERT INTO image "
+            "(id, file_name, file_size, file_type, storage_key, file_uuid, status, purpose, created_at, updated_at)"
+        )
+        a("SELECT")
+        a("  image_id,")
+        a(
+            "  'promotion-' || promotion_id || '-' || (sort_order + 1) || '-' || "
+            + sql_hash_slice_expr(
+                sql_quote(run_token) + " || '-promotion-image-file-' || promotion_id::TEXT || '-' || sort_order::TEXT",
+                1,
+                6,
+            )
+            + " || '.webp',"
+        )
+        a("  210000 + ((seq % 10) * 5000),")
+        a("  'image/webp',")
+        a(
+            "  "
+            + sql_storage_key_expr(
+                "uploads/promotion/asset",
+                run_token,
+                "'promotion/' || promotion_id || '/asset-' || (sort_order + 1)",
+                "webp",
+                sql_quote(run_token) + " || '-promotion-image-storage-' || promotion_id::TEXT || '-' || sort_order::TEXT",
+            )
+            + ","
+        )
+        a("  file_uuid,")
+        a("  'ACTIVE',")
+        a("  'COMMON_ASSET',")
+        a("  NOW(),")
+        a("  NOW()")
+        a("FROM tmp_promotion_domain_image;")
+        a("")
+        a("INSERT INTO domain_image (id, domain_type, domain_id, image_id, sort_order, created_at)")
+        a("SELECT nextval('domain_image_seq'), 'PROMOTION', promotion_id, image_id, sort_order, NOW() FROM tmp_promotion_domain_image")
+        a("ON CONFLICT ON CONSTRAINT uq_domain_image_link DO NOTHING;")
+        a("")
+
+    if effective_image_optimization_job_count > 0:
+        a("-- Image optimization jobs")
+        a("DO $$")
+        a("BEGIN")
+        a("  IF to_regclass('public.image_optimization_job') IS NOT NULL THEN")
+        a(
+            "    INSERT INTO image_optimization_job "
+            "(image_id, original_width, original_height, optimized_width, optimized_height, original_size, optimized_size, processed_at, status, error_message, created_at)"
+        )
+        a("    SELECT")
+        a("      seeded.image_id,")
+        a("      1600 - ((seeded.rn % 3) * 160),")
+        a("      1200 - ((seeded.rn % 4) * 120),")
+        a("      CASE WHEN MOD(seeded.rn, 5) = 0 THEN NULL ELSE 1280 - ((seeded.rn % 3) * 120) END,")
+        a("      CASE WHEN MOD(seeded.rn, 5) = 0 THEN NULL ELSE 960 - ((seeded.rn % 4) * 90) END,")
+        a("      seeded.file_size,")
+        a("      CASE WHEN MOD(seeded.rn, 11) = 0 THEN NULL ELSE (seeded.file_size * 72 / 100) END,")
+        a("      CASE WHEN MOD(seeded.rn, 5) = 0 THEN NULL ELSE NOW() - ((seeded.rn % 20) || ' hours')::INTERVAL END,")
+        a("      CASE WHEN MOD(seeded.rn, 11) = 0 THEN 'FAILED' WHEN MOD(seeded.rn, 5) = 0 THEN 'PENDING' ELSE 'SUCCESS' END,")
+        a("      CASE WHEN MOD(seeded.rn, 11) = 0 THEN '원본 메타데이터가 부족해 최적화가 지연되었습니다.' ELSE NULL END,")
+        a("      NOW() - ((seeded.rn % 7) || ' days')::INTERVAL")
+        a("    FROM (")
+        a("      SELECT i.id AS image_id, i.file_size, ROW_NUMBER() OVER (ORDER BY i.id) AS rn")
+        a("      FROM image i")
+        a(
+            "      WHERE i.storage_key LIKE '%/"
+            + run_token
+            + "/%'"
+        )
+        a("    ) seeded")
+        a(f"    WHERE seeded.rn <= {effective_image_optimization_job_count}")
+        a("    ON CONFLICT (image_id) DO NOTHING;")
+        a("  END IF;")
+        a("END $$;")
+        a("")
+
+    if include_async_log_data and (
+        total_user_activity_event_count > 0
+        or effective_notification_outbox_count > 0
+        or effective_user_activity_group_join_count > 0
+    ):
+        a("-- Async pipeline / operational log seed")
+
+        if total_user_activity_event_count > 0:
+            a(
+                "CREATE TEMP TABLE tmp_async_user_activity_event ("
+                "seq INTEGER PRIMARY KEY, event_id VARCHAR(64) NOT NULL UNIQUE, event_name VARCHAR(100) NOT NULL, "
+                "event_version VARCHAR(20) NOT NULL, occurred_at TIMESTAMPTZ NOT NULL, member_id BIGINT, "
+                "anonymous_id VARCHAR(100), session_id VARCHAR(100), source VARCHAR(20) NOT NULL, "
+                "request_path VARCHAR(255), request_method VARCHAR(10), device_id VARCHAR(100), "
+                "platform VARCHAR(30), app_version VARCHAR(30), locale VARCHAR(20), properties JSONB NOT NULL"
+                ") ON COMMIT DROP;"
+            )
+            a("")
+
+            ua_offset = 0
+
+            if effective_user_activity_group_join_count > 0:
+                a("-- User activity: group.joined")
+                a(
+                    "INSERT INTO tmp_async_user_activity_event "
+                    "(seq, event_id, event_name, event_version, occurred_at, member_id, anonymous_id, session_id, "
+                    "source, request_path, request_method, device_id, platform, app_version, locale, properties)"
+                )
+                a("SELECT")
+                a(f"  {ua_offset} + seeded.rn,")
+                a(
+                    "  'ua-"
+                    + run_token
+                    + "-group-joined-' || LPAD(seeded.rn::TEXT, 8, '0'),"
+                )
+                a("  'group.joined',")
+                a("  'v1',")
+                a("  NOW() - ((seeded.rn % 45) || ' days')::INTERVAL - ((seeded.rn % 720) || ' minutes')::INTERVAL,")
+                a("  seeded.member_id,")
+                a("  NULL,")
+                a("  NULL,")
+                a("  'SERVER',")
+                a("  '/groups/' || seeded.group_id,")
+                a("  NULL,")
+                a("  NULL,")
+                a("  NULL,")
+                a("  NULL,")
+                a("  'ko-KR',")
+                a("  jsonb_build_object('groupId', seeded.group_id, 'groupName', seeded.group_name)")
+                a("FROM (")
+                a("  SELECT gm.member_id, gm.group_id, g.name AS group_name, ROW_NUMBER() OVER (ORDER BY gm.id) AS rn")
+                a("  FROM group_member gm")
+                a("  JOIN tmp_dummy_group tg ON tg.id = gm.group_id")
+                a("  JOIN \"group\" g ON g.id = gm.group_id")
+                a(") seeded")
+                a(f"WHERE seeded.rn <= {effective_user_activity_group_join_count};")
+                a("")
+                ua_offset += effective_user_activity_group_join_count
+
+            if effective_user_activity_review_created_count > 0:
+                a("-- User activity: review.created")
+                a(
+                    "INSERT INTO tmp_async_user_activity_event "
+                    "(seq, event_id, event_name, event_version, occurred_at, member_id, anonymous_id, session_id, "
+                    "source, request_path, request_method, device_id, platform, app_version, locale, properties)"
+                )
+                a("SELECT")
+                a(f"  {ua_offset} + rv.seq,")
+                a(
+                    "  'ua-"
+                    + run_token
+                    + "-review-created-' || LPAD(rv.seq::TEXT, 8, '0'),"
+                )
+                a("  'review.created',")
+                a("  'v1',")
+                a("  NOW() - ((rv.seq % 30) || ' days')::INTERVAL - ((rv.seq % 480) || ' minutes')::INTERVAL,")
+                a("  NULL,")
+                a("  NULL,")
+                a("  NULL,")
+                a("  'SERVER',")
+                a("  NULL,")
+                a("  NULL,")
+                a("  NULL,")
+                a("  NULL,")
+                a("  NULL,")
+                a("  'ko-KR',")
+                a("  jsonb_build_object('restaurantId', rv.restaurant_id)")
+                a("FROM tmp_dummy_review rv")
+                a(f"WHERE rv.seq <= {effective_user_activity_review_created_count};")
+                a("")
+                ua_offset += effective_user_activity_review_created_count
+
+            if effective_user_activity_search_count > 0:
+                a("-- User activity: ui.search.executed")
+                a("WITH cfg AS (")
+                a(
+                    f"  SELECT {sql_text_array(content['search_keywords'])}::TEXT[] AS keywords,"
+                    f" {sql_text_array(['IOS', 'ANDROID', 'WEB'])}::TEXT[] AS platforms"
+                )
+                a(")")
+                a(
+                    "INSERT INTO tmp_async_user_activity_event "
+                    "(seq, event_id, event_name, event_version, occurred_at, member_id, anonymous_id, session_id, "
+                    "source, request_path, request_method, device_id, platform, app_version, locale, properties)"
+                )
+                a("SELECT")
+                a(f"  {ua_offset} + se.seq,")
+                a(
+                    "  'ua-"
+                    + run_token
+                    + "-search-' || LPAD(se.seq::TEXT, 8, '0'),"
+                )
+                a("  'ui.search.executed',")
+                a("  'v1',")
+                a("  NOW() - ((se.seq % 20) || ' days')::INTERVAL - ((se.seq % 1440) || ' minutes')::INTERVAL,")
+                a("  m.id,")
+                a("  NULL,")
+                a(
+                    "  SUBSTR(MD5("
+                    + sql_quote(run_token)
+                    + " || '-search-session-' || m.id::TEXT || '-' || se.seq::TEXT), 1, 24),"
+                )
+                a("  'CLIENT',")
+                a("  '/search',")
+                a("  'GET',")
+                a(
+                    "  'device-' || "
+                    + sql_quote(run_token)
+                    + " || '-slot-' || LPAD(("
+                    + sql_bucket_expr(
+                        sql_quote(run_token) + " || '-ua-device-' || m.id::TEXT",
+                        1,
+                        24,
+                        1,
+                    )
+                    + ")::TEXT, 2, '0') || '-' || "
+                    + sql_hash_slice_expr(
+                        sql_quote(run_token) + " || '-ua-device-' || m.id::TEXT",
+                        1,
+                        16,
+                    )
+                    + ","
+                )
+                a("  cfg.platforms[((se.seq - 1) % CARDINALITY(cfg.platforms)) + 1],")
+                a("  '2.' || ((se.seq % 4) + 1) || '.' || ((se.seq % 10) + 1),")
+                a("  'ko-KR',")
+                a(
+                    "  jsonb_build_object("
+                    "'keyword', cfg.keywords[((se.seq - 1) % CARDINALITY(cfg.keywords)) + 1], "
+                    "'resultCount', 5 + (se.seq % 18), "
+                    "'source', 'CLIENT'"
+                    ")"
+                )
+                a(f"FROM generate_series(1, {effective_user_activity_search_count}) AS se(seq)")
+                a("JOIN tmp_dummy_member m")
+                a(f"  ON m.seq = (((se.seq - 1) % {member_count}) + 1)")
+                a("CROSS JOIN cfg;")
+                a("")
+                ua_offset += effective_user_activity_search_count
+
+            if effective_user_activity_favorite_count > 0:
+                a("-- User activity: ui.favorite.updated")
+                a("WITH cfg AS (")
+                a(f"  SELECT {sql_text_array(['IOS', 'ANDROID', 'WEB'])}::TEXT[] AS platforms")
+                a(")")
+                a(
+                    "INSERT INTO tmp_async_user_activity_event "
+                    "(seq, event_id, event_name, event_version, occurred_at, member_id, anonymous_id, session_id, "
+                    "source, request_path, request_method, device_id, platform, app_version, locale, properties)"
+                )
+                a("SELECT")
+                a(f"  {ua_offset} + fs.seq + 1,")
+                a(
+                    "  'ua-"
+                    + run_token
+                    + "-favorite-updated-' || LPAD((fs.seq + 1)::TEXT, 8, '0'),"
+                )
+                a("  'ui.favorite.updated',")
+                a("  'v1',")
+                a("  NOW() - ((fs.seq % 25) || ' days')::INTERVAL - ((fs.seq % 900) || ' minutes')::INTERVAL,")
+                a("  m.id,")
+                a("  NULL,")
+                a(
+                    "  SUBSTR(MD5("
+                    + sql_quote(run_token)
+                    + " || '-favorite-session-' || m.id::TEXT || '-' || r.id::TEXT), 1, 24),"
+                )
+                a("  'CLIENT',")
+                a("  '/restaurants/' || r.id || '/favorite',")
+                a("  'POST',")
+                a(
+                    "  'device-' || "
+                    + sql_quote(run_token)
+                    + " || '-slot-' || LPAD(("
+                    + sql_bucket_expr(
+                        sql_quote(run_token) + " || '-ua-device-' || m.id::TEXT",
+                        1,
+                        24,
+                        1,
+                    )
+                    + ")::TEXT, 2, '0') || '-' || "
+                    + sql_hash_slice_expr(
+                        sql_quote(run_token) + " || '-ua-device-' || m.id::TEXT",
+                        1,
+                        16,
+                    )
+                    + ","
+                )
+                a("  cfg.platforms[((fs.seq) % CARDINALITY(cfg.platforms)) + 1],")
+                a("  '2.' || ((fs.seq % 4) + 1) || '.' || ((fs.seq % 10) + 1),")
+                a("  'ko-KR',")
+                a("  jsonb_build_object('restaurantId', r.id, 'action', 'ADD', 'source', 'CLIENT')")
+                a(f"FROM generate_series(0, {effective_user_activity_favorite_count - 1}) AS fs(seq)")
+                a("JOIN tmp_dummy_member m")
+                a(f"  ON m.seq = ((fs.seq % {member_count}) + 1)")
+                a("JOIN tmp_dummy_restaurant r")
+                a(f"  ON r.seq = (((fs.seq / {member_count}) % {restaurant_count}) + 1)")
+                a("CROSS JOIN cfg;")
+                a("")
+                ua_offset += effective_user_activity_favorite_count
+
+            if effective_user_activity_restaurant_view_count > 0:
+                a("-- User activity: ui.restaurant.viewed")
+                a("WITH cfg AS (")
+                a(f"  SELECT {sql_text_array(['IOS', 'ANDROID', 'WEB'])}::TEXT[] AS platforms")
+                a(")")
+                a(
+                    "INSERT INTO tmp_async_user_activity_event "
+                    "(seq, event_id, event_name, event_version, occurred_at, member_id, anonymous_id, session_id, "
+                    "source, request_path, request_method, device_id, platform, app_version, locale, properties)"
+                )
+                a("SELECT")
+                a(f"  {ua_offset} + rvw.seq,")
+                a(
+                    "  'ua-"
+                    + run_token
+                    + "-restaurant-viewed-' || LPAD(rvw.seq::TEXT, 8, '0'),"
+                )
+                a("  'ui.restaurant.viewed',")
+                a("  'v1',")
+                a("  NOW() - ((rvw.seq % 18) || ' days')::INTERVAL - ((rvw.seq % 600) || ' minutes')::INTERVAL,")
+                a("  m.id,")
+                a("  NULL,")
+                a(
+                    "  SUBSTR(MD5("
+                    + sql_quote(run_token)
+                    + " || '-restaurant-view-session-' || m.id::TEXT || '-' || r.id::TEXT), 1, 24),"
+                )
+                a("  'CLIENT',")
+                a("  '/restaurants/' || r.id,")
+                a("  'GET',")
+                a(
+                    "  'device-' || "
+                    + sql_quote(run_token)
+                    + " || '-slot-' || LPAD(("
+                    + sql_bucket_expr(
+                        sql_quote(run_token) + " || '-ua-device-' || m.id::TEXT",
+                        1,
+                        24,
+                        1,
+                    )
+                    + ")::TEXT, 2, '0') || '-' || "
+                    + sql_hash_slice_expr(
+                        sql_quote(run_token) + " || '-ua-device-' || m.id::TEXT",
+                        1,
+                        16,
+                    )
+                    + ","
+                )
+                a("  cfg.platforms[((rvw.seq - 1) % CARDINALITY(cfg.platforms)) + 1],")
+                a("  '2.' || ((rvw.seq % 4) + 1) || '.' || ((rvw.seq % 10) + 1),")
+                a("  'ko-KR',")
+                a(
+                    "  jsonb_build_object("
+                    "'restaurantId', r.id, "
+                    "'entryPoint', CASE WHEN MOD(rvw.seq, 4) = 0 THEN 'map' WHEN MOD(rvw.seq, 3) = 0 THEN 'favorite' ELSE 'search' END, "
+                    "'source', 'CLIENT'"
+                    ")"
+                )
+                a(f"FROM generate_series(1, {effective_user_activity_restaurant_view_count}) AS rvw(seq)")
+                a("JOIN tmp_dummy_member m")
+                a(f"  ON m.seq = (((rvw.seq - 1) % {member_count}) + 1)")
+                a("JOIN tmp_dummy_restaurant r")
+                a(f"  ON r.seq = ((((rvw.seq - 1) * 7) % {restaurant_count}) + 1)")
+                a("CROSS JOIN cfg;")
+                a("")
+                ua_offset += effective_user_activity_restaurant_view_count
+
+            if effective_user_activity_page_view_count > 0:
+                a("-- User activity: ui.page.viewed")
+                a("WITH cfg AS (")
+                a(
+                    f"  SELECT {sql_text_array(['/home', '/search', '/groups', '/restaurants'])}::TEXT[] AS paths,"
+                    f" {sql_text_array(['IOS', 'ANDROID', 'WEB'])}::TEXT[] AS platforms"
+                )
+                a(")")
+                a(
+                    "INSERT INTO tmp_async_user_activity_event "
+                    "(seq, event_id, event_name, event_version, occurred_at, member_id, anonymous_id, session_id, "
+                    "source, request_path, request_method, device_id, platform, app_version, locale, properties)"
+                )
+                a("SELECT")
+                a(f"  {ua_offset} + pv.seq,")
+                a(
+                    "  'ua-"
+                    + run_token
+                    + "-page-viewed-' || LPAD(pv.seq::TEXT, 8, '0'),"
+                )
+                a("  'ui.page.viewed',")
+                a("  'v1',")
+                a("  NOW() - ((pv.seq % 12) || ' days')::INTERVAL - ((pv.seq % 360) || ' minutes')::INTERVAL,")
+                a("  m.id,")
+                a("  NULL,")
+                a(
+                    "  SUBSTR(MD5("
+                    + sql_quote(run_token)
+                    + " || '-page-view-session-' || m.id::TEXT || '-' || pv.seq::TEXT), 1, 24),"
+                )
+                a("  'CLIENT',")
+                a("  cfg.paths[((pv.seq - 1) % CARDINALITY(cfg.paths)) + 1],")
+                a("  'GET',")
+                a(
+                    "  'device-' || "
+                    + sql_quote(run_token)
+                    + " || '-slot-' || LPAD(("
+                    + sql_bucket_expr(
+                        sql_quote(run_token) + " || '-ua-device-' || m.id::TEXT",
+                        1,
+                        24,
+                        1,
+                    )
+                    + ")::TEXT, 2, '0') || '-' || "
+                    + sql_hash_slice_expr(
+                        sql_quote(run_token) + " || '-ua-device-' || m.id::TEXT",
+                        1,
+                        16,
+                    )
+                    + ","
+                )
+                a("  cfg.platforms[((pv.seq - 1) % CARDINALITY(cfg.platforms)) + 1],")
+                a("  '2.' || ((pv.seq % 4) + 1) || '.' || ((pv.seq % 10) + 1),")
+                a("  'ko-KR',")
+                a(
+                    "  jsonb_build_object("
+                    "'page', cfg.paths[((pv.seq - 1) % CARDINALITY(cfg.paths)) + 1], "
+                    "'source', 'CLIENT'"
+                    ")"
+                )
+                a(f"FROM generate_series(1, {effective_user_activity_page_view_count}) AS pv(seq)")
+                a("JOIN tmp_dummy_member m")
+                a(f"  ON m.seq = (((pv.seq - 1) % {member_count}) + 1)")
+                a("CROSS JOIN cfg;")
+                a("")
+                ua_offset += effective_user_activity_page_view_count
+
+            if effective_user_activity_page_dwelled_count > 0:
+                a("-- User activity: ui.page.dwelled")
+                a("WITH cfg AS (")
+                a(
+                    f"  SELECT {sql_text_array(['/home', '/search', '/groups', '/restaurants'])}::TEXT[] AS paths,"
+                    f" {sql_text_array(['IOS', 'ANDROID', 'WEB'])}::TEXT[] AS platforms"
+                )
+                a(")")
+                a(
+                    "INSERT INTO tmp_async_user_activity_event "
+                    "(seq, event_id, event_name, event_version, occurred_at, member_id, anonymous_id, session_id, "
+                    "source, request_path, request_method, device_id, platform, app_version, locale, properties)"
+                )
+                a("SELECT")
+                a(f"  {ua_offset} + pd.seq,")
+                a(
+                    "  'ua-"
+                    + run_token
+                    + "-page-dwelled-' || LPAD(pd.seq::TEXT, 8, '0'),"
+                )
+                a("  'ui.page.dwelled',")
+                a("  'v1',")
+                a("  NOW() - ((pd.seq % 10) || ' days')::INTERVAL - ((pd.seq % 240) || ' minutes')::INTERVAL,")
+                a("  m.id,")
+                a("  NULL,")
+                a(
+                    "  SUBSTR(MD5("
+                    + sql_quote(run_token)
+                    + " || '-page-dwelled-session-' || m.id::TEXT || '-' || pd.seq::TEXT), 1, 24),"
+                )
+                a("  'CLIENT',")
+                a("  cfg.paths[((pd.seq - 1) % CARDINALITY(cfg.paths)) + 1],")
+                a("  'GET',")
+                a(
+                    "  'device-' || "
+                    + sql_quote(run_token)
+                    + " || '-slot-' || LPAD(("
+                    + sql_bucket_expr(
+                        sql_quote(run_token) + " || '-ua-device-' || m.id::TEXT",
+                        1,
+                        24,
+                        1,
+                    )
+                    + ")::TEXT, 2, '0') || '-' || "
+                    + sql_hash_slice_expr(
+                        sql_quote(run_token) + " || '-ua-device-' || m.id::TEXT",
+                        1,
+                        16,
+                    )
+                    + ","
+                )
+                a("  cfg.platforms[((pd.seq - 1) % CARDINALITY(cfg.platforms)) + 1],")
+                a("  '2.' || ((pd.seq % 4) + 1) || '.' || ((pd.seq % 10) + 1),")
+                a("  'ko-KR',")
+                a(
+                    "  jsonb_build_object("
+                    "'page', cfg.paths[((pd.seq - 1) % CARDINALITY(cfg.paths)) + 1], "
+                    "'dwellMillis', 1500 + ((pd.seq % 12) * 700), "
+                    "'source', 'CLIENT'"
+                    ")"
+                )
+                a(f"FROM generate_series(1, {effective_user_activity_page_dwelled_count}) AS pd(seq)")
+                a("JOIN tmp_dummy_member m")
+                a(f"  ON m.seq = (((pd.seq - 1) % {member_count}) + 1)")
+                a("CROSS JOIN cfg;")
+                a("")
+
+            a(
+                "INSERT INTO user_activity_event "
+                "(event_id, event_name, event_version, occurred_at, member_id, anonymous_id, session_id, source, "
+                "request_path, request_method, device_id, platform, app_version, locale, properties, created_at)"
+            )
+            a("SELECT")
+            a("  event_id,")
+            a("  event_name,")
+            a("  event_version,")
+            a("  occurred_at,")
+            a("  member_id,")
+            a("  anonymous_id,")
+            a("  session_id,")
+            a("  source,")
+            a("  request_path,")
+            a("  request_method,")
+            a("  device_id,")
+            a("  platform,")
+            a("  app_version,")
+            a("  locale,")
+            a("  properties,")
+            a("  NOW()")
+            a("FROM tmp_async_user_activity_event")
+            a("ON CONFLICT (event_id) DO NOTHING;")
+            a("")
+
+            a(
+                "CREATE TEMP TABLE tmp_async_source_outbox ("
+                "seq INTEGER PRIMARY KEY, event_id VARCHAR(64) NOT NULL UNIQUE, event_name VARCHAR(100) NOT NULL, "
+                "event_version VARCHAR(20) NOT NULL, occurred_at TIMESTAMPTZ NOT NULL, member_id BIGINT, "
+                "payload JSONB NOT NULL, status VARCHAR(20) NOT NULL, retry_count INTEGER NOT NULL, "
+                "next_retry_at TIMESTAMPTZ, last_error VARCHAR(1000), published_at TIMESTAMPTZ, "
+                "created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL"
+                ") ON COMMIT DROP;"
+            )
+            a("")
+            a(
+                "INSERT INTO tmp_async_source_outbox "
+                "(seq, event_id, event_name, event_version, occurred_at, member_id, payload, status, retry_count, "
+                "next_retry_at, last_error, published_at, created_at, updated_at)"
+            )
+            a("SELECT")
+            a("  seeded.seq,")
+            a("  seeded.event_id,")
+            a("  seeded.event_name,")
+            a("  seeded.event_version,")
+            a("  seeded.occurred_at,")
+            a("  seeded.member_id,")
+            a(
+                "  jsonb_build_object("
+                "'eventId', seeded.event_id, "
+                "'eventName', seeded.event_name, "
+                "'eventVersion', seeded.event_version, "
+                "'occurredAt', TO_CHAR(seeded.occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), "
+                "'memberId', seeded.member_id, "
+                "'anonymousId', seeded.anonymous_id, "
+                "'properties', seeded.properties"
+                "),"
+            )
+            a("  seeded.status,")
+            a("  seeded.retry_count,")
+            a("  CASE WHEN seeded.status = 'PUBLISHED' THEN NULL ELSE NOW() + ((seeded.retry_count * 15) || ' seconds')::INTERVAL END,")
+            a(
+                "  CASE "
+                "    WHEN seeded.status = 'FAILED' THEN '사용자 이벤트 메시지큐 발행 실패가 누적되어 재시도 대기 중입니다.' "
+                "    WHEN seeded.status = 'PENDING' THEN '사용자 이벤트 메시지큐 발행 워커 처리 대기 중입니다.' "
+                "    ELSE NULL "
+                "  END,"
+            )
+            a("  CASE WHEN seeded.status = 'PUBLISHED' THEN seeded.occurred_at + ((seeded.seq % 20) || ' seconds')::INTERVAL ELSE NULL END,")
+            a("  seeded.occurred_at + INTERVAL '1 second',")
+            a("  NOW() - ((seeded.seq % 90) || ' minutes')::INTERVAL")
+            a("FROM (")
+            a("  SELECT")
+            a("    e.*,")
+            a(
+                "    CASE "
+                f"      WHEN MOD(e.seq, 100) < {async_source_failed_percent} THEN 'FAILED' "
+                f"      WHEN MOD(e.seq, 100) < {async_source_failed_percent + async_source_pending_percent} THEN 'PENDING' "
+                "      ELSE 'PUBLISHED' "
+                "    END AS status,"
+            )
+            a(
+                "    CASE "
+                f"      WHEN MOD(e.seq, 100) < {async_source_failed_percent + async_source_pending_percent} THEN 1 + (e.seq % 4) "
+                "      ELSE 0 "
+                "    END AS retry_count"
+            )
+            a("  FROM tmp_async_user_activity_event e")
+            a(") seeded;")
+            a("")
+            a(
+                "INSERT INTO user_activity_source_outbox "
+                "(event_id, event_name, event_version, occurred_at, member_id, payload, status, retry_count, "
+                "next_retry_at, last_error, published_at, created_at, updated_at)"
+            )
+            a("SELECT")
+            a("  event_id, event_name, event_version, occurred_at, member_id, payload, status, retry_count,")
+            a("  next_retry_at, last_error, published_at, created_at, updated_at")
+            a("FROM tmp_async_source_outbox")
+            a("ON CONFLICT (event_id) DO NOTHING;")
+            a("")
+
+            a(
+                "CREATE TEMP TABLE tmp_async_dispatch_outbox ("
+                "seq INTEGER PRIMARY KEY, event_id VARCHAR(64) NOT NULL UNIQUE, dispatch_target VARCHAR(30) NOT NULL, "
+                "payload JSONB NOT NULL, status VARCHAR(20) NOT NULL, retry_count INTEGER NOT NULL, "
+                "next_retry_at TIMESTAMPTZ, last_error VARCHAR(1000), dispatched_at TIMESTAMPTZ, "
+                "created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL"
+                ") ON COMMIT DROP;"
+            )
+            a("")
+            a(
+                "INSERT INTO tmp_async_dispatch_outbox "
+                "(seq, event_id, dispatch_target, payload, status, retry_count, next_retry_at, last_error, "
+                "dispatched_at, created_at, updated_at)"
+            )
+            a("SELECT")
+            a("  seeded.seq,")
+            a("  seeded.event_id,")
+            a("  'POSTHOG',")
+            a(
+                "  jsonb_build_object("
+                "'eventId', seeded.event_id, "
+                "'eventName', seeded.event_name, "
+                "'eventVersion', seeded.event_version, "
+                "'occurredAt', TO_CHAR(seeded.occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), "
+                "'memberId', seeded.member_id, "
+                "'anonymousId', seeded.anonymous_id, "
+                "'properties', seeded.properties"
+                "),"
+            )
+            a("  seeded.status,")
+            a("  seeded.retry_count,")
+            a("  CASE WHEN seeded.status = 'DISPATCHED' THEN NULL ELSE NOW() + ((seeded.retry_count * 20) || ' seconds')::INTERVAL END,")
+            a(
+                "  CASE "
+                "    WHEN seeded.status = 'FAILED' THEN 'PostHog 전송 실패로 dispatch outbox 재시도가 필요합니다.' "
+                "    WHEN seeded.status = 'PENDING' THEN 'dispatch scheduler 처리 대기 중입니다.' "
+                "    ELSE NULL "
+                "  END,"
+            )
+            a("  CASE WHEN seeded.status = 'DISPATCHED' THEN seeded.occurred_at + ((seeded.seq % 40) || ' seconds')::INTERVAL ELSE NULL END,")
+            a("  seeded.occurred_at + INTERVAL '2 seconds',")
+            a("  NOW() - ((seeded.seq % 60) || ' minutes')::INTERVAL")
+            a("FROM (")
+            a("  SELECT")
+            a("    e.*,")
+            a(
+                "    CASE "
+                f"      WHEN MOD(e.seq, 100) < {async_dispatch_failed_percent} THEN 'FAILED' "
+                f"      WHEN MOD(e.seq, 100) < {async_dispatch_failed_percent + async_dispatch_pending_percent} THEN 'PENDING' "
+                "      ELSE 'DISPATCHED' "
+                "    END AS status,"
+            )
+            a(
+                "    CASE "
+                f"      WHEN MOD(e.seq, 100) < {async_dispatch_failed_percent + async_dispatch_pending_percent} THEN 1 + (e.seq % 5) "
+                "      ELSE 0 "
+                "    END AS retry_count"
+            )
+            a("  FROM tmp_async_user_activity_event e")
+            a(") seeded;")
+            a("")
+            a(
+                "INSERT INTO user_activity_dispatch_outbox "
+                "(event_id, dispatch_target, payload, status, retry_count, next_retry_at, last_error, dispatched_at, created_at, updated_at)"
+            )
+            a("SELECT")
+            a("  event_id, dispatch_target, payload, status, retry_count, next_retry_at, last_error, dispatched_at, created_at, updated_at")
+            a("FROM tmp_async_dispatch_outbox")
+            a("ON CONFLICT (event_id, dispatch_target) DO NOTHING;")
+            a("")
+            a("-- Message queue trace: user activity pipeline")
+            a(
+                "INSERT INTO message_queue_trace_log "
+                "(message_id, topic, provider, message_key, consumer_group, stage, processing_millis, error_message, created_at)"
+            )
+            a("SELECT")
+            a("  event_id,")
+            a("  'domain.user.activity',")
+            a("  'redis-stream',")
+            a("  COALESCE(member_id::TEXT, event_id),")
+            a("  NULL,")
+            a("  'PUBLISH',")
+            a("  NULL,")
+            a("  NULL,")
+            a("  COALESCE(published_at, created_at)")
+            a("FROM tmp_async_source_outbox")
+            a("WHERE status = 'PUBLISHED';")
+            a("")
+            a(
+                "INSERT INTO message_queue_trace_log "
+                "(message_id, topic, provider, message_key, consumer_group, stage, processing_millis, error_message, created_at)"
+            )
+            a("SELECT")
+            a("  event_id,")
+            a("  'domain.user.activity',")
+            a("  'redis-stream',")
+            a("  COALESCE(member_id::TEXT, event_id),")
+            a("  'tasteam-api-user-activity',")
+            a("  CASE WHEN MOD(seq, 67) = 0 THEN 'CONSUME_FAIL' ELSE 'CONSUME_SUCCESS' END,")
+            a("  CASE WHEN MOD(seq, 67) = 0 THEN 850 + (seq % 700) ELSE 35 + (seq % 180) END,")
+            a(
+                "  CASE WHEN MOD(seq, 67) = 0 "
+                "    THEN '사용자 이벤트 소비 후 저장 단계에서 재시도 가능한 오류가 발생했습니다.' "
+                "    ELSE NULL "
+                "  END,"
+            )
+            a("  COALESCE(published_at, created_at) + INTERVAL '1 second'")
+            a("FROM tmp_async_source_outbox")
+            a("WHERE status = 'PUBLISHED';")
+            a("")
+
+        if effective_notification_outbox_count > 0:
+            a(
+                "CREATE TEMP TABLE tmp_async_notification_outbox ("
+                "seq INTEGER PRIMARY KEY, event_id VARCHAR(64) NOT NULL UNIQUE, event_type VARCHAR(64) NOT NULL, "
+                "recipient_id BIGINT NOT NULL, payload JSONB NOT NULL, status VARCHAR(20) NOT NULL, "
+                "retry_count INTEGER NOT NULL, next_retry_at TIMESTAMPTZ, last_error VARCHAR(1000), "
+                "published_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL"
+                ") ON COMMIT DROP;"
+            )
+            a("")
+            a(
+                "INSERT INTO tmp_async_notification_outbox "
+                "(seq, event_id, event_type, recipient_id, payload, status, retry_count, next_retry_at, last_error, "
+                "published_at, created_at, updated_at)"
+            )
+            a("SELECT")
+            a("  seeded.rn,")
+            a("  seeded.event_id,")
+            a(
+                "  CASE MOD(seeded.rn, 4) "
+                "    WHEN 0 THEN 'GroupMemberJoinedEvent' "
+                "    WHEN 1 THEN 'GroupRequestSubmittedEvent' "
+                "    WHEN 2 THEN 'GroupRequestReviewedEvent' "
+                "    ELSE 'MemberRegisteredEvent' "
+                "  END,"
+            )
+            a("  seeded.recipient_id,")
+            a(
+                "  jsonb_build_object("
+                "'eventId', seeded.event_id, "
+                "'eventType', CASE MOD(seeded.rn, 4) "
+                "  WHEN 0 THEN 'GroupMemberJoinedEvent' "
+                "  WHEN 1 THEN 'GroupRequestSubmittedEvent' "
+                "  WHEN 2 THEN 'GroupRequestReviewedEvent' "
+                "  ELSE 'MemberRegisteredEvent' "
+                "END, "
+                "'recipientId', seeded.recipient_id, "
+                "'notificationType', seeded.notification_type, "
+                "'channels', CASE seeded.notification_type "
+                "  WHEN 'NOTICE' THEN jsonb_build_array('WEB', 'PUSH', 'EMAIL') "
+                "  WHEN 'CHAT' THEN jsonb_build_array('WEB', 'PUSH') "
+                "  ELSE jsonb_build_array('WEB', 'PUSH') "
+                "END, "
+                "'templateKey', CASE MOD(seeded.rn, 4) "
+                "  WHEN 0 THEN 'group-joined' "
+                "  WHEN 1 THEN 'group-request-submitted' "
+                "  WHEN 2 THEN 'group-request-reviewed' "
+                "  ELSE 'member-welcome' "
+                "END, "
+                "'templateVariables', jsonb_build_object('title', seeded.title, 'body', seeded.body), "
+                "'deepLink', seeded.deep_link, "
+                "'occurredAt', TO_CHAR(seeded.occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
+                "),"
+            )
+            a("  seeded.status,")
+            a("  seeded.retry_count,")
+            a("  CASE WHEN seeded.status = 'PUBLISHED' THEN NULL ELSE NOW() + ((seeded.retry_count * 30) || ' seconds')::INTERVAL END,")
+            a(
+                "  CASE "
+                "    WHEN seeded.status = 'FAILED' THEN '알림 아웃박스 메시지큐 발행 실패가 누적되었습니다.' "
+                "    WHEN seeded.status = 'PENDING' THEN '알림 아웃박스 스캐너의 다음 배치를 기다리고 있습니다.' "
+                "    ELSE NULL "
+                "  END,"
+            )
+            a("  CASE WHEN seeded.status = 'PUBLISHED' THEN seeded.occurred_at + ((seeded.rn % 15) || ' seconds')::INTERVAL ELSE NULL END,")
+            a("  seeded.occurred_at + INTERVAL '1 second',")
+            a("  NOW() - ((seeded.rn % 45) || ' minutes')::INTERVAL")
+            a("FROM (")
+            a("  SELECT")
+            a("    n.event_id,")
+            a("    n.member_id AS recipient_id,")
+            a("    n.notification_type,")
+            a("    n.title,")
+            a("    n.body,")
+            a("    n.deep_link,")
+            a("    n.created_at AS occurred_at,")
+            a("    ROW_NUMBER() OVER (ORDER BY n.id) AS rn,")
+            a(
+                "    CASE "
+                f"      WHEN MOD(ROW_NUMBER() OVER (ORDER BY n.id), 100) < {async_notification_failed_percent} THEN 'FAILED' "
+                f"      WHEN MOD(ROW_NUMBER() OVER (ORDER BY n.id), 100) < {async_notification_failed_percent + async_notification_pending_percent} THEN 'PENDING' "
+                "      ELSE 'PUBLISHED' "
+                "    END AS status,"
+            )
+            a(
+                "    CASE "
+                f"      WHEN MOD(ROW_NUMBER() OVER (ORDER BY n.id), 100) < {async_notification_failed_percent + async_notification_pending_percent} "
+                "      THEN 1 + (ROW_NUMBER() OVER (ORDER BY n.id) % 4) "
+                "      ELSE 0 "
+                "    END AS retry_count"
+            )
+            a("  FROM notification n")
+            a(
+                "  WHERE n.event_id LIKE "
+                + sql_quote(content["notification_event_prefix"] + "-" + run_token + "-%")
+            )
+            a(") seeded")
+            a(f"WHERE seeded.rn <= {effective_notification_outbox_count};")
+            a("")
+            a(
+                "INSERT INTO notification_outbox "
+                "(event_id, event_type, recipient_id, payload, status, retry_count, next_retry_at, last_error, published_at, created_at, updated_at)"
+            )
+            a("SELECT")
+            a("  event_id, event_type, recipient_id, payload, status, retry_count, next_retry_at, last_error, published_at, created_at, updated_at")
+            a("FROM tmp_async_notification_outbox")
+            a("ON CONFLICT (event_id) DO NOTHING;")
+            a("")
+            a("INSERT INTO consumed_notification_event (consumer_group, event_id, stream_key, processed_at)")
+            a("SELECT")
+            a("  'cg.notification.processor.v1',")
+            a("  event_id,")
+            a("  'evt.notification.v1',")
+            a("  COALESCE(published_at, created_at) + INTERVAL '2 seconds'")
+            a("FROM tmp_async_notification_outbox")
+            a("WHERE status = 'PUBLISHED'")
+            a("  AND MOD(seq, 53) <> 0")
+            a("ON CONFLICT (consumer_group, event_id) DO NOTHING;")
+            a("")
+            a("-- Message queue trace: notification pipeline")
+            a(
+                "INSERT INTO message_queue_trace_log "
+                "(message_id, topic, provider, message_key, consumer_group, stage, processing_millis, error_message, created_at)"
+            )
+            a("SELECT")
+            a("  event_id,")
+            a("  'evt.notification.v1',")
+            a("  'redis-stream',")
+            a("  recipient_id::TEXT,")
+            a("  NULL,")
+            a("  'PUBLISH',")
+            a("  NULL,")
+            a("  NULL,")
+            a("  COALESCE(published_at, created_at)")
+            a("FROM tmp_async_notification_outbox")
+            a("WHERE status = 'PUBLISHED';")
+            a("")
+            a(
+                "INSERT INTO message_queue_trace_log "
+                "(message_id, topic, provider, message_key, consumer_group, stage, processing_millis, error_message, created_at)"
+            )
+            a("SELECT")
+            a("  event_id,")
+            a("  'evt.notification.v1',")
+            a("  'redis-stream',")
+            a("  recipient_id::TEXT,")
+            a("  'cg.notification.processor.v1',")
+            a("  CASE WHEN MOD(seq, 53) = 0 THEN 'CONSUME_FAIL' ELSE 'CONSUME_SUCCESS' END,")
+            a("  CASE WHEN MOD(seq, 53) = 0 THEN 950 + (seq % 500) ELSE 45 + (seq % 140) END,")
+            a(
+                "  CASE WHEN MOD(seq, 53) = 0 "
+                "    THEN '알림 메시지 역직렬화 또는 처리 단계에서 예외가 발생해 DLQ 전송 후보가 되었습니다.' "
+                "    ELSE NULL "
+                "  END,"
+            )
+            a("  COALESCE(published_at, created_at) + INTERVAL '1 second'")
+            a("FROM tmp_async_notification_outbox")
+            a("WHERE status = 'PUBLISHED';")
+            a("")
+
+        if effective_user_activity_group_join_count > 0:
+            a("-- Message queue trace: group member joined notifications")
+            a(
+                "INSERT INTO message_queue_trace_log "
+                "(message_id, topic, provider, message_key, consumer_group, stage, processing_millis, error_message, created_at)"
+            )
+            a("SELECT")
+            a(
+                "  'mq-group-joined-"
+                + run_token
+                + "-' || LPAD(seeded.rn::TEXT, 8, '0'),"
+            )
+            a("  'domain.group.member-joined',")
+            a("  'redis-stream',")
+            a("  seeded.member_id::TEXT,")
+            a("  NULL,")
+            a("  'PUBLISH',")
+            a("  NULL,")
+            a("  NULL,")
+            a("  NOW() - ((seeded.rn % 21) || ' days')::INTERVAL - ((seeded.rn % 360) || ' minutes')::INTERVAL")
+            a("FROM (")
+            a("  SELECT gm.member_id, ROW_NUMBER() OVER (ORDER BY gm.id) AS rn")
+            a("  FROM group_member gm")
+            a("  JOIN tmp_dummy_group tg ON tg.id = gm.group_id")
+            a(") seeded")
+            a(f"WHERE seeded.rn <= {effective_user_activity_group_join_count};")
+            a("")
+            a(
+                "INSERT INTO message_queue_trace_log "
+                "(message_id, topic, provider, message_key, consumer_group, stage, processing_millis, error_message, created_at)"
+            )
+            a("SELECT")
+            a(
+                "  'mq-group-joined-"
+                + run_token
+                + "-' || LPAD(seeded.rn::TEXT, 8, '0'),"
+            )
+            a("  'domain.group.member-joined',")
+            a("  'redis-stream',")
+            a("  seeded.member_id::TEXT,")
+            a("  'tasteam-api',")
+            a("  CASE WHEN MOD(seeded.rn, 71) = 0 THEN 'CONSUME_FAIL' ELSE 'CONSUME_SUCCESS' END,")
+            a("  CASE WHEN MOD(seeded.rn, 71) = 0 THEN 700 + (seeded.rn % 300) ELSE 25 + (seeded.rn % 120) END,")
+            a(
+                "  CASE WHEN MOD(seeded.rn, 71) = 0 "
+                "    THEN '그룹 가입 메시지 후속 알림 생성 중 일시 오류가 발생했습니다.' "
+                "    ELSE NULL "
+                "  END,"
+            )
+            a("  NOW() - ((seeded.rn % 21) || ' days')::INTERVAL - ((seeded.rn % 360) || ' minutes')::INTERVAL + INTERVAL '1 second'")
+            a("FROM (")
+            a("  SELECT gm.member_id, ROW_NUMBER() OVER (ORDER BY gm.id) AS rn")
+            a("  FROM group_member gm")
+            a("  JOIN tmp_dummy_group tg ON tg.id = gm.group_id")
+            a(") seeded")
+            a(f"WHERE seeded.rn <= {effective_user_activity_group_join_count};")
+            a("")
 
     a("-- Load-test bootstrap fixture for k6/locust scripts (phase1_test / locustfile)")
     a("CREATE TEMP TABLE tmp_loadtest_users (")
@@ -1490,19 +3714,11 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
     a("SET member_count = (SELECT COUNT(*) FROM subgroup_member WHERE subgroup_id = 4002 AND deleted_at IS NULL)")
     a("WHERE id = 4002;")
     a("")
-    a("DO $$")
-    a("BEGIN")
-    a("  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto') THEN")
-    a("    RAISE WARNING 'pgcrypto extension not found: group_auth_code for load-test group skipped';")
-    a("    RETURN;")
-    a("  END IF;")
-    a("")
-    a("  DELETE FROM group_auth_code WHERE group_id = 2002;")
+    a("DELETE FROM group_auth_code WHERE group_id = 2002;")
     a(
-        "  INSERT INTO group_auth_code (id, group_id, code, created_at)"
-        " VALUES (nextval('group_auth_code_seq'), 2002, crypt('LOCAL-1234', gen_salt('bf', 12)), NOW());"
+        "INSERT INTO group_auth_code (id, group_id, code, created_at) "
+        f"VALUES (nextval('group_auth_code_seq'), 2002, {group_join_code_hash_sql}, NOW());"
     )
-    a("END $$;")
     a("")
 
     a("COMMIT;")
@@ -1519,6 +3735,9 @@ def build_cleanup_sql(cfg: dict[str, Any]) -> str:
     group_like = content["group_name_prefix"].replace("%", "\\%") + "-" + run_token + "-%"
     restaurant_like = content["restaurant_name_prefix"].replace("%", "\\%") + "-" + run_token + "-%"
     event_like = content["notification_event_prefix"].replace("%", "\\%") + "-" + run_token + "-%"
+    user_activity_event_like = "ua-" + run_token.replace("%", "\\%") + "-%"
+    group_join_trace_like = "mq-group-joined-" + run_token.replace("%", "\\%") + "-%"
+    asset_token_like = "%/" + run_token.replace("%", "\\%") + "/%"
 
     lines: list[str] = []
     a = lines.append
@@ -1543,10 +3762,25 @@ def build_cleanup_sql(cfg: dict[str, Any]) -> str:
     a("CREATE TEMP TABLE tmp_cleanup_group_ids AS")
     a(f"SELECT id FROM \"group\" WHERE name LIKE {sql_quote(group_like)};")
     a("INSERT INTO tmp_cleanup_group_ids (id)")
+    a(f"SELECT id FROM \"group\" WHERE logo_image_url LIKE {sql_quote(asset_token_like)};")
+    a("INSERT INTO tmp_cleanup_group_ids (id)")
+    a(
+        "SELECT DISTINCT group_id "
+        "FROM subgroup "
+        f"WHERE profile_image_url LIKE {sql_quote(asset_token_like)};"
+    )
+    a("INSERT INTO tmp_cleanup_group_ids (id)")
     a("SELECT 2002 WHERE EXISTS (SELECT 1 FROM \"group\" WHERE id = 2002);")
     a("")
     a("CREATE TEMP TABLE tmp_cleanup_restaurant_ids AS")
     a(f"SELECT id FROM restaurant WHERE name LIKE {sql_quote(restaurant_like)};")
+    a("INSERT INTO tmp_cleanup_restaurant_ids (id)")
+    a(
+        "SELECT DISTINCT mc.restaurant_id "
+        "FROM menu_category mc "
+        "JOIN menu m ON m.category_id = mc.id "
+        f"WHERE m.image_url LIKE {sql_quote(asset_token_like)};"
+    )
     a("")
     a("CREATE TEMP TABLE tmp_cleanup_subgroup_ids AS")
     a("SELECT id FROM subgroup WHERE group_id IN (SELECT id FROM tmp_cleanup_group_ids);")
@@ -1554,10 +3788,125 @@ def build_cleanup_sql(cfg: dict[str, Any]) -> str:
     a("CREATE TEMP TABLE tmp_cleanup_chat_room_ids AS")
     a("SELECT id FROM chat_room WHERE subgroup_id IN (SELECT id FROM tmp_cleanup_subgroup_ids);")
     a("")
+    a("CREATE TEMP TABLE tmp_cleanup_review_ids AS")
+    a("SELECT id FROM review WHERE member_id IN (SELECT id FROM tmp_cleanup_member_ids)")
+    a("   OR restaurant_id IN (SELECT id FROM tmp_cleanup_restaurant_ids);")
+    a("")
+    a("CREATE TEMP TABLE tmp_cleanup_announcement_ids AS")
+    a(
+        "SELECT id FROM announcement "
+        f"WHERE title LIKE {sql_quote('시드공지-' + run_token + '-%')};"
+    )
+    a("")
+    a("CREATE TEMP TABLE tmp_cleanup_promotion_ids AS")
+    a("SELECT id FROM promotion")
+    a(
+        f"WHERE title LIKE {sql_quote('시드프로모션-' + run_token + '-%')}"
+        f"   OR landing_url LIKE {sql_quote('%/' + run_token + '/%')};"
+    )
+    a("")
+    a("CREATE TEMP TABLE tmp_cleanup_report_ids AS")
+    a("SELECT id FROM report")
+    a(
+        f"WHERE content LIKE {sql_quote('시드신고-' + run_token + '-%')}"
+        "   OR member_id IN (SELECT id FROM tmp_cleanup_member_ids);"
+    )
+    a("")
+    a("CREATE TEMP TABLE tmp_cleanup_image_ids AS")
+    a("SELECT id FROM image")
+    a(f"WHERE storage_key LIKE {sql_quote(asset_token_like)};")
+    a("")
+    a("CREATE TEMP TABLE tmp_cleanup_domain_image_ids AS")
+    a("SELECT id FROM domain_image WHERE image_id IN (SELECT id FROM tmp_cleanup_image_ids);")
+    a("")
 
+    a("DO $$")
+    a("BEGIN")
+    a("  IF to_regclass('public.image_optimization_job') IS NOT NULL THEN")
+    a("    DELETE FROM image_optimization_job WHERE image_id IN (SELECT id FROM tmp_cleanup_image_ids);")
+    a("  END IF;")
+    a("END $$;")
+    a("")
+    a(
+        "DELETE FROM chat_message_file "
+        "WHERE chat_message_id IN ("
+        "  SELECT id FROM chat_message WHERE chat_room_id IN (SELECT id FROM tmp_cleanup_chat_room_ids)"
+        ") "
+        "   OR domain_image_id IN (SELECT id FROM tmp_cleanup_domain_image_ids);"
+    )
+    a("DO $$")
+    a("BEGIN")
+    a("  IF to_regclass('public.review_image') IS NOT NULL THEN")
+    a(
+        "    DELETE FROM review_image "
+        "WHERE review_id IN (SELECT id FROM tmp_cleanup_review_ids) "
+        f"   OR image_url LIKE {sql_quote(asset_token_like)};"
+    )
+    a("  END IF;")
+    a("END $$;")
+    a("")
+    a("DO $$")
+    a("BEGIN")
+    a("  IF to_regclass('public.restaurant_image') IS NOT NULL THEN")
+    a(
+        "    DELETE FROM restaurant_image "
+        "WHERE restaurant_id IN (SELECT id FROM tmp_cleanup_restaurant_ids) "
+        f"   OR image_url LIKE {sql_quote(asset_token_like)};"
+    )
+    a("  END IF;")
+    a("END $$;")
+    a("")
+    a("DO $$")
+    a("BEGIN")
+    a("  IF to_regclass('public.restaurant_ai_results') IS NOT NULL THEN")
+    a(
+        "    DELETE FROM restaurant_ai_results "
+        "WHERE restaurant_id::BIGINT IN (SELECT id FROM tmp_cleanup_restaurant_ids) "
+        f"   OR restaurant_name LIKE {sql_quote(restaurant_like)};"
+    )
+    a("  END IF;")
+    a("END $$;")
+    a("")
+    a("DO $$")
+    a("BEGIN")
+    a("  IF to_regclass('public.ai_restaurant_feature') IS NOT NULL THEN")
+    a("    DELETE FROM ai_restaurant_feature WHERE restaurant_id IN (SELECT id FROM tmp_cleanup_restaurant_ids);")
+    a("  END IF;")
+    a("END $$;")
+    a("")
+    a("DELETE FROM promotion_asset WHERE promotion_id IN (SELECT id FROM tmp_cleanup_promotion_ids)")
+    a(f"   OR image_url LIKE {sql_quote(asset_token_like)};")
+    a("DELETE FROM promotion_display WHERE promotion_id IN (SELECT id FROM tmp_cleanup_promotion_ids);")
+    a("DELETE FROM promotion WHERE id IN (SELECT id FROM tmp_cleanup_promotion_ids);")
+    a("DELETE FROM announcement WHERE id IN (SELECT id FROM tmp_cleanup_announcement_ids);")
+    a("DELETE FROM report WHERE id IN (SELECT id FROM tmp_cleanup_report_ids);")
+    a(
+        "DELETE FROM push_notification_target "
+        "WHERE member_id IN (SELECT id FROM tmp_cleanup_member_ids) "
+        f"   OR device_id LIKE {sql_quote('device-' + run_token + '-%')} "
+        f"   OR fcm_token LIKE {sql_quote('fcm-' + run_token + '-%')};"
+    )
+    a("DELETE FROM refresh_token WHERE member_id IN (SELECT id FROM tmp_cleanup_member_ids);")
     a("DELETE FROM member_notification_preference WHERE member_id IN (SELECT id FROM tmp_cleanup_member_ids);")
     a("DELETE FROM member_search_history WHERE member_id IN (SELECT id FROM tmp_cleanup_member_ids);")
     a("DELETE FROM member_favorite_restaurant WHERE member_id IN (SELECT id FROM tmp_cleanup_member_ids);")
+    a(
+        "DELETE FROM message_queue_trace_log "
+        f"WHERE message_id LIKE {sql_quote(user_activity_event_like)} "
+        f"   OR message_id LIKE {sql_quote(event_like)} "
+        f"   OR message_id LIKE {sql_quote(group_join_trace_like)};"
+    )
+    a(
+        "DELETE FROM consumed_notification_event "
+        "WHERE consumer_group = 'cg.notification.processor.v1' "
+        f"  AND event_id LIKE {sql_quote(event_like)};"
+    )
+    a(f"DELETE FROM notification_outbox WHERE event_id LIKE {sql_quote(event_like)};")
+    a("DELETE FROM user_activity_dispatch_outbox")
+    a(f"WHERE event_id LIKE {sql_quote(user_activity_event_like)};")
+    a("DELETE FROM user_activity_source_outbox")
+    a(f"WHERE event_id LIKE {sql_quote(user_activity_event_like)};")
+    a(f"DELETE FROM user_activity_event WHERE event_id LIKE {sql_quote(user_activity_event_like)};")
     a(
         "DELETE FROM subgroup_favorite_restaurant "
         "WHERE subgroup_id IN (SELECT id FROM tmp_cleanup_subgroup_ids) "
@@ -1566,13 +3915,8 @@ def build_cleanup_sql(cfg: dict[str, Any]) -> str:
     a(f"DELETE FROM notification WHERE event_id LIKE {sql_quote(event_like)};")
     a("DELETE FROM notification WHERE member_id IN (SELECT id FROM tmp_cleanup_member_ids);")
     a("")
-    a("DELETE FROM review_keyword WHERE review_id IN (")
-    a("  SELECT id FROM review")
-    a("  WHERE member_id IN (SELECT id FROM tmp_cleanup_member_ids)")
-    a("     OR restaurant_id IN (SELECT id FROM tmp_cleanup_restaurant_ids)")
-    a(");")
-    a("DELETE FROM review WHERE member_id IN (SELECT id FROM tmp_cleanup_member_ids)")
-    a("   OR restaurant_id IN (SELECT id FROM tmp_cleanup_restaurant_ids);")
+    a("DELETE FROM review_keyword WHERE review_id IN (SELECT id FROM tmp_cleanup_review_ids);")
+    a("DELETE FROM review WHERE id IN (SELECT id FROM tmp_cleanup_review_ids);")
     a("")
     a("DELETE FROM chat_message WHERE chat_room_id IN (SELECT id FROM tmp_cleanup_chat_room_ids);")
     a("DELETE FROM chat_room_member WHERE chat_room_id IN (SELECT id FROM tmp_cleanup_chat_room_ids)")
@@ -1588,6 +3932,8 @@ def build_cleanup_sql(cfg: dict[str, Any]) -> str:
     a("DELETE FROM group_auth_code WHERE group_id IN (SELECT id FROM tmp_cleanup_group_ids);")
     a("DELETE FROM \"group\" WHERE id IN (SELECT id FROM tmp_cleanup_group_ids);")
     a("")
+    a("DELETE FROM restaurant_schedule_override WHERE restaurant_id IN (SELECT id FROM tmp_cleanup_restaurant_ids);")
+    a("DELETE FROM restaurant_comparison WHERE restaurant_id IN (SELECT id FROM tmp_cleanup_restaurant_ids);")
     a(
         "DELETE FROM restaurant_review_summary WHERE restaurant_id IN "
         "(SELECT id FROM tmp_cleanup_restaurant_ids);"
@@ -1596,6 +3942,12 @@ def build_cleanup_sql(cfg: dict[str, Any]) -> str:
         "DELETE FROM restaurant_review_sentiment WHERE restaurant_id IN "
         "(SELECT id FROM tmp_cleanup_restaurant_ids);"
     )
+    a(
+        "DELETE FROM domain_image "
+        "WHERE id IN (SELECT id FROM tmp_cleanup_domain_image_ids) "
+        "   OR image_id IN (SELECT id FROM tmp_cleanup_image_ids);"
+    )
+    a("DELETE FROM image WHERE id IN (SELECT id FROM tmp_cleanup_image_ids);")
     a("DELETE FROM restaurant_food_category WHERE restaurant_id IN (SELECT id FROM tmp_cleanup_restaurant_ids);")
     a("DELETE FROM restaurant_weekly_schedule WHERE restaurant_id IN (SELECT id FROM tmp_cleanup_restaurant_ids);")
     a("DELETE FROM restaurant_address WHERE restaurant_id IN (SELECT id FROM tmp_cleanup_restaurant_ids);")
@@ -1618,19 +3970,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=Path,
-        default=None,
-        help="JSON 설정 파일 경로 (미지정 시 내장 기본값 사용)",
+        default=SCRIPT_DIR / "default_seed_profile.json",
+        help="JSON 설정 파일 경로 (미지정 시 default_seed_profile.json 사용)",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=SCRIPT_DIR / "generated_dummy_seed.sql",
+        default=SCRIPT_DIR.parent / "results" / "generated-seed" / "latest" / "seed.sql",
         help="생성할 seed SQL 파일 경로",
     )
     parser.add_argument(
         "--cleanup-output",
         type=Path,
-        default=None,
+        default=SCRIPT_DIR.parent / "results" / "generated-seed" / "latest" / "cleanup.sql",
         help="생성할 cleanup SQL 파일 경로 (선택)",
     )
     parser.add_argument(

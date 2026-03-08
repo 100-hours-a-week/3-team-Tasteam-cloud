@@ -34,14 +34,17 @@
 
 ## 데이터 시드
 
-- 로그인 기반 suite를 돌리기 전에 [`seed/`](/Users/devon.woo/Workspace/Tasteam/3-team-Tasteam-cloud/loadtest/seed)의 SQL 생성기 또는 사전 생성 SQL로 테스트 계정/그룹 데이터를 주입합니다.
+- 로그인 기반 suite를 돌리기 전에는 [`seed/README.md`](/Users/devon.woo/Workspace/Tasteam/3-team-Tasteam-cloud/loadtest/seed/README.md)의 표준 절차를 따릅니다.
+- 표준 기준은 `generate_dummy_seed_sql.py + default_seed_profile.json`입니다.
 - 기본 seed에는 `test-user-001` 계정군, 그룹 `2002`, 서브그룹 `4002`, 채팅방 bootstrap이 포함됩니다.
-- DB 정리까지 필요하면 `generated_dummy_cleanup.sql`을 함께 생성하거나 사용합니다.
+- `join_type=PASSWORD` 그룹의 가입 코드는 기본적으로 `1234`이며, DB에는 bcrypt 해시로 저장됩니다.
+- 비동기 로그성 테이블까지 포함한 대용량 seed가 기본 프리셋에 포함됩니다.
+- 생성 결과물은 `loadtest/results/generated-seed/...` 아래에만 둡니다.
 
 ## 공통 환경변수
 
 - `BASE_URL`: 기본 대상 서버
-- `TEST_GROUP_CODE`: 그룹 가입 시도에 사용하는 비밀번호/코드
+- `TEST_GROUP_CODE`: 그룹 가입 시도에 사용하는 비밀번호/코드. 기본 시드 기준값은 `1234`
 - `GROUP_SEARCH_KEYWORDS`: 가입 후보 그룹을 찾을 검색 키워드 목록
 - `TEST_GROUP_ID`: 고정 그룹 직접 가입이 필요한 예외 스크립트용 식별자
 - `TEST_RESTAURANT_ID`: 리뷰 작성 fallback 음식점 ID
