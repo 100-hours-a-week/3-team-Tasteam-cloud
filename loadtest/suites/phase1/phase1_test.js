@@ -35,7 +35,7 @@ import {
     pickSubgroupId,
     pickChatRoomId,
     pickRestaurantId,
-} from '../api-tests/shared/scenarios.js';
+} from '../../shared/scenarios.js';
 
 const SUITE = __ENV.TEST_SUITE || 'full';
 const CACHE_MODE = __ENV.CACHE_MODE || 'off';

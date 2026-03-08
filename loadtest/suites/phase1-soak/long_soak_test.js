@@ -17,7 +17,7 @@ import {
     executeChatJourney,
     executeWritingJourney,
     prepareHotspotPools,
-} from '../api-tests/shared/scenarios.js';
+} from '../../shared/scenarios.js';
 
 const SOAK_MODE = __ENV.SOAK_MODE || '24h';
 const CACHE_MODE = __ENV.CACHE_MODE || 'off';

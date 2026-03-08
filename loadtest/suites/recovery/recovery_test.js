@@ -1,23 +1,21 @@
 /**
- * Long Soak Test - 24h / 48h 장기 부하 테스트 (P0)
+ * Recovery Test - 스파이크 후 복구 관찰 테스트
  *
- * 목적: 장시간 운영 시 메모리 누수, 연결 고갈, 성능 저하 탐지
+ * 목적: 급격한 부하 이후 시스템이 정상 응답 수준으로 복구되는지 검증
  *
- * SOAK_MODE 환경변수로 선택:
- *   24h (기본값) - ramp 1h(40 VU) → steady 22h(100 VU) → close 1h
- *   48h          - 0~12h(100 VU) → 12~36h(120 VU 피크) → 36~47h(100 VU) → 47~48h(close)
+ * 단계:
+ *   Phase 1 (3분): 50→500 VU (스파이크)
+ *   Phase 2 (1분): 500 VU 유지
+ *   Phase 3 (2분): 500→50 VU (램프다운)
+ *   Phase 4 (10분): 50 VU 저부하 (복구 관찰)
  *
- * CACHE_MODE 환경변수 (태깅용):
- *   on  (기본값) - 캐시 활성화 상태 측정
- *   off          - 캐시 비활성화 상태 측정 (비교용)
- *
- * 판정 기준 (30분 롤링, Grafana 확인):
- *   - 에러율 ≤ 0.3%
- *   - read p95 < 1s
+ * 복구 완료 기준 (Phase 4):
+ *   - read p95 < 1.5s
+ *   - 에러율 < 0.1%
  *
  * 실행 방법:
- *   SOAK_MODE=24h ./run-soak.sh
- *   SOAK_MODE=48h CACHE_MODE=off ./run-soak.sh
+ *   ./run-recovery.sh
+ *   BASE_URL=https://stg.tasteam.kr k6 run recovery_test.js
  */
 
 import { sleep } from 'k6';
@@ -33,26 +31,19 @@ import {
     executeBrowsingJourney,
     executeSearchingJourney,
     executeGroupJourney,
-    executeSubgroupJourney,
     executePersonalJourney,
-    executeChatJourney,
     executeWritingJourney,
-} from './shared/scenarios.js';
-import { logTestStart, createJourneyMetrics } from './shared/test-utils.js';
-
-const SOAK_MODE  = __ENV.SOAK_MODE  || '24h';
-const CACHE_MODE = __ENV.CACHE_MODE || 'on';
+} from '../../shared/scenarios.js';
+import { logTestStart, createJourneyMetrics } from '../../shared/test-utils.js';
 
 const metrics = createJourneyMetrics();
 
-// ============ Journey 선택 (realistic_test.js와 동일 가중치) ============
+// ============ Journey 선택 ============
 const JOURNEYS = [
     { name: 'browsing',  weight: 28, fn: executeBrowsingJourney },
     { name: 'searching', weight: 18, fn: executeSearchingJourney },
     { name: 'group',     weight: 12, fn: executeGroupJourney },
-    { name: 'subgroup',  weight: 12, fn: executeSubgroupJourney },
     { name: 'personal',  weight: 12, fn: executePersonalJourney },
-    { name: 'chat',      weight: 10, fn: executeChatJourney },
     { name: 'writing',   weight:  8, fn: executeWritingJourney },
 ];
 const TOTAL_WEIGHT = JOURNEYS.reduce((sum, j) => sum + j.weight, 0);
@@ -66,51 +57,37 @@ function selectJourney() {
     return JOURNEYS[0];
 }
 
-// ============ 시나리오별 stages ============
-const SOAK_STAGES = {
-    '24h': [
-        { target: 40,  duration: '30m' },  // 워밍업 (40% VU)
-        { target: 100, duration: '30m' },  // 램프업
-        { target: 100, duration: '22h' },  // 스테디 (22시간)
-        { target: 0,   duration: '1h'  },  // 종료
-    ],
-    '48h': [
-        { target: 40,  duration: '30m' },  // 워밍업
-        { target: 100, duration: '30m' },  // 램프업 → 24h 수준
-        { target: 100, duration: '11h' },  // 0~12h 스테디
-        { target: 120, duration: '1h'  },  // 12h 피크 진입
-        { target: 120, duration: '24h' },  // 12~36h 1.2x 피크
-        { target: 100, duration: '1h'  },  // 피크 복귀
-        { target: 100, duration: '10h' },  // 36~47h 스테디
-        { target: 0,   duration: '1h'  },  // 종료
-    ],
-};
-
+// ============ Test Options ============
 export const options = {
     scenarios: {
-        soak: {
+        recovery: {
             executor: 'ramping-vus',
-            startVUs: 10,
-            stages: SOAK_STAGES[SOAK_MODE] || SOAK_STAGES['24h'],
-            tags: { cache_mode: CACHE_MODE, soak_mode: SOAK_MODE },
+            startVUs: 50,
+            stages: [
+                { target: 500, duration: '3m' },  // Phase 1: 스파이크
+                { target: 500, duration: '1m' },  // Phase 2: 유지
+                { target: 50,  duration: '2m' },  // Phase 3: 램프다운
+                { target: 50,  duration: '10m' }, // Phase 4: 복구 관찰
+            ],
         },
     },
     thresholds: {
-        'http_req_duration':             ['p(95)<2000'],
-        'http_req_failed':               ['rate<0.003'],  // 0.3%
-        'http_req_duration{type:read}':  ['p(95)<1000'],
+        // 전체 구간 기준
+        'http_req_duration':             ['p(95)<3000'],
+        'http_req_failed':               ['rate<0.01'],
+        // Phase 4 복구 기준 (전체 임계치로 근사 - 실제 Phase 4 측정은 Grafana에서 확인)
+        'http_req_duration{type:read}':  ['p(95)<1500'],
         'http_req_duration{type:write}': ['p(95)<3000'],
     },
 };
 
 // ============ Setup ============
 export function setup() {
-    logTestStart(`Long Soak Test [${SOAK_MODE}] cache=${CACHE_MODE}`, BASE_URL);
-    const mode = SOAK_MODE === '48h'
-        ? '48h: 0~12h(100 VU) → 12~36h(120 VU) → 36~47h(100 VU) → 47~48h(close)'
-        : '24h: ramp 1h → steady 22h(100 VU) → close 1h';
-    console.log(`   모드: ${mode}`);
-    console.log(`   판정 기준: 30분 롤링 에러율 ≤ 0.3%, read p95 < 1s`);
+    logTestStart('Recovery Test', BASE_URL);
+    console.log('   Phase 1 (3m): 50→500 VU 스파이크');
+    console.log('   Phase 2 (1m): 500 VU 유지');
+    console.log('   Phase 3 (2m): 500→50 VU 램프다운');
+    console.log('   Phase 4 (10m): 50 VU 저부하 복구 관찰');
 
     const tokens = batchLogin(100);
     if (!tokens || tokens.length === 0) {
@@ -164,13 +141,12 @@ export default function(data) {
     const count = journey.fn(state);
     metrics.add(count, `${journey.name}_count`);
 
-    // Think time: 1~5초 (실제 사용자 행동 간격)
-    sleep(1 + Math.random() * 4);
+    sleep(1 + Math.random() * 3);
 }
 
 // ============ Teardown ============
 export function teardown(data) {
-    console.log(`🏁 Long Soak Test [${SOAK_MODE}] 완료`);
-    console.log('   Grafana 대시보드에서 30분 롤링 에러율 및 p95 추이를 확인하세요.');
-    console.log('   판정 기준: 에러율 ≤ 0.3%, read p95 < 1s');
+    console.log('🏁 Recovery Test 완료');
+    console.log('   Phase 4 (저부하 10분) 구간의 p95 추이를 Grafana에서 확인하세요.');
+    console.log('   복구 완료 기준: read p95 < 1.5s, 에러율 < 0.1%');
 }

@@ -44,8 +44,8 @@ import {
     sendChatMessage,
     updateChatReadCursor,
     createReview,
-} from './shared/scenarios.js';
-import { logTestStart, SuccessMetrics } from './shared/test-utils.js';
+} from '../../shared/scenarios.js';
+import { logTestStart, SuccessMetrics } from '../../shared/test-utils.js';
 
 const SPIKE_TARGET = __ENV.SPIKE_TARGET || 'search';
 

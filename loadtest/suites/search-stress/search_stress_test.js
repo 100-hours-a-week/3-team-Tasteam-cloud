@@ -5,8 +5,8 @@ import {
     search,
     prepareKeywordHotspot,
     pickKeyword,
-} from './shared/scenarios.js';
-import { logTestStart, SuccessMetrics } from './shared/test-utils.js';
+} from '../../shared/scenarios.js';
+import { logTestStart, SuccessMetrics } from '../../shared/test-utils.js';
 
 // ============ Test Options ============
 const metrics = new SuccessMetrics(['search_success_count']);

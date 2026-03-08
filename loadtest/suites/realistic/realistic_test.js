@@ -36,8 +36,8 @@ import {
     executeChatJourney,
     executeWritingJourney,
     prepareHotspotPools,
-} from './shared/scenarios.js';
-import { logTestStart, createJourneyMetrics } from './shared/test-utils.js';
+} from '../../shared/scenarios.js';
+import { logTestStart, createJourneyMetrics } from '../../shared/test-utils.js';
 
 // ============ Custom Metrics ============
 const metrics = createJourneyMetrics();

@@ -26,8 +26,8 @@ import {
     executeReadScenario,
     executeWriteScenario,
     prepareHotspotPools,
-} from './shared/scenarios.js';
-import { logTestStart, SuccessMetrics } from './shared/test-utils.js';
+} from '../../shared/scenarios.js';
+import { logTestStart, SuccessMetrics } from '../../shared/test-utils.js';
 
 // ============ Custom Metrics ============
 const metrics = new SuccessMetrics(['read_success_count', 'write_success_count']);

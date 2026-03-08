@@ -31,8 +31,8 @@ import {
     randomLocation,
     randomKeyword,
     randomChatMessage,
-} from './shared/scenarios.js';
-import { logTestStart, SuccessMetrics } from './shared/test-utils.js';
+} from '../../shared/scenarios.js';
+import { logTestStart, SuccessMetrics } from '../../shared/test-utils.js';
 
 const TEST_TYPE = __ENV.TEST_TYPE || 'read-heavy';
 
