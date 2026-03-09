@@ -7,6 +7,7 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
       - ./prometheus/data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -44,9 +45,14 @@ services:
     restart: unless-stopped
     ports:
       - "12345:12345"  # Alloy 자체 텔레메트리
+    privileged: true
     volumes:
       - ./alloy/alloy-monitoring.alloy:/etc/alloy/config.alloy:ro
-      - /var/run/docker.sock:/var/run/docker.sock  # cAdvisor + Docker 로그 수집용
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /:/rootfs:ro
+      - /var/run:/var/run
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-prod}
       - ROLE=monitoring
