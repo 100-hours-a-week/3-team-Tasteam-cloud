@@ -26,6 +26,7 @@ import {
     executeChatJourney,
     executeWritingJourney,
     prepareHotspotPools,
+    randomLocation,
     pickKeyword,
     pickGroupId,
     pickSubgroupId,
@@ -69,17 +70,6 @@ function pickJourney() {
 
 function randomToken(tokens) {
     return tokens[Math.floor(Math.random() * tokens.length)];
-}
-
-function randomLocation() {
-    const points = [
-        { lat: 37.5665, lon: 126.9780 },
-        { lat: 37.4979, lon: 127.0276 },
-        { lat: 37.5443, lon: 127.0557 },
-        { lat: 37.5600, lon: 127.0369 },
-        { lat: 37.5506, lon: 126.9217 },
-    ];
-    return points[Math.floor(Math.random() * points.length)];
 }
 
 function randomKeyword() {

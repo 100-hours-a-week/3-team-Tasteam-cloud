@@ -88,6 +88,7 @@ export function createState() {
         reviewId: null,
         keywordIds: [],
         hotspot: null,
+        anonymousId: buildVuAnonymousId(),
     };
 }
 
@@ -603,27 +604,48 @@ export function executeWriteScenario(state) {
 
 // ============ Random Data Generators ============
 
-const LOCATIONS = [
-    { lat: 37.5665, lon: 126.9780 }, // 시청
-    { lat: 37.4979, lon: 127.0276 }, // 강남
-    { lat: 37.5563, lon: 126.9723 }, // 홍대
-    { lat: 37.5519, lon: 126.9918 }, // 명동
-    { lat: 37.5172, lon: 127.0473 }, // 역삼
-    { lat: 37.5144, lon: 127.1050 }, // 잠실
-    { lat: 37.5796, lon: 126.9770 }, // 경복궁
-    { lat: 37.5443, lon: 127.0557 }, // 성수
-    { lat: 37.5600, lon: 127.0369 }, // 왕십리
-    { lat: 37.5172, lon: 127.0391 }, // 선릉
-    { lat: 37.5326, lon: 126.9003 }, // 여의도
-    { lat: 37.5400, lon: 127.0695 }, // 건대입구
-    { lat: 37.5779, lon: 126.9849 }, // 광화문
-    { lat: 37.5174, lon: 127.0272 }, // 논현
-    { lat: 37.5229, lon: 127.0247 }, // 신사/가로수길
-    { lat: 37.5483, lon: 126.9164 }, // 마포
-    { lat: 37.5838, lon: 127.0021 }, // 혜화/대학로
-    { lat: 37.5506, lon: 126.9217 }, // 합정
-    { lat: 37.5591, lon: 126.9264 }, // 망원
-    { lat: 37.5670, lon: 126.9852 }, // 종로
+const LOCATION_ZONES = [
+    {
+        name: 'seoul-core',
+        weight: 45,
+        latSpan: 0.020,
+        lonSpan: 0.024,
+        points: [
+            { lat: 37.5665, lon: 126.9780 }, // 시청
+            { lat: 37.4979, lon: 127.0276 }, // 강남
+            { lat: 37.5563, lon: 126.9723 }, // 홍대
+            { lat: 37.5326, lon: 126.9003 }, // 여의도
+            { lat: 37.5443, lon: 127.0557 }, // 성수
+            { lat: 37.5144, lon: 127.1050 }, // 잠실
+            { lat: 37.5779, lon: 126.9849 }, // 광화문
+        ],
+    },
+    {
+        name: 'gyeonggi-core',
+        weight: 25,
+        latSpan: 0.024,
+        lonSpan: 0.028,
+        points: [
+            { lat: 37.2636, lon: 127.0286 }, // 수원
+            { lat: 37.4018, lon: 127.1088 }, // 분당
+            { lat: 37.2850, lon: 127.0456 }, // 광교
+            { lat: 37.3943, lon: 126.9568 }, // 안양/평촌
+            { lat: 37.3596, lon: 126.9307 }, // 안산
+            { lat: 37.6584, lon: 126.8320 }, // 일산
+        ],
+    },
+    {
+        name: 'pangyo-hotspot',
+        weight: 30,
+        latSpan: 0.010,
+        lonSpan: 0.012,
+        points: [
+            { lat: 37.3947, lon: 127.1112 }, // 판교역
+            { lat: 37.4007, lon: 127.1049 }, // 판교 테크노밸리
+            { lat: 37.3892, lon: 127.1069 }, // 백현동
+            { lat: 37.3674, lon: 127.1087 }, // 정자/판교 사이
+        ],
+    },
 ];
 
 const SEARCH_KEYWORDS = [
@@ -647,11 +669,30 @@ const SEARCH_KEYWORDS = [
 
 export const RADII = [500, 1000, 2000, 3000, 5000];
 
+function roundCoordinate(value, digits = 4) {
+    return Number(value.toFixed(digits));
+}
+
+function randomSpan(span) {
+    return (Math.random() - 0.5) * span;
+}
+
+function pickLocationZone() {
+    const totalWeight = LOCATION_ZONES.reduce((sum, zone) => sum + zone.weight, 0);
+    let pivot = Math.random() * totalWeight;
+    for (const zone of LOCATION_ZONES) {
+        pivot -= zone.weight;
+        if (pivot <= 0) return zone;
+    }
+    return LOCATION_ZONES[0];
+}
+
 export function randomLocation() {
-    const base = LOCATIONS[Math.floor(Math.random() * LOCATIONS.length)];
+    const zone = pickLocationZone();
+    const base = zone.points[Math.floor(Math.random() * zone.points.length)];
     return {
-        lat: base.lat + (Math.random() - 0.5) * 0.02,
-        lon: base.lon + (Math.random() - 0.5) * 0.02,
+        lat: roundCoordinate(base.lat + randomSpan(zone.latSpan)),
+        lon: roundCoordinate(base.lon + randomSpan(zone.lonSpan)),
     };
 }
 
@@ -1311,8 +1352,10 @@ export function getAnnouncementDetail(token, id) {
 }
 
 export function reverseGeocode(lat, lon) {
+    const normalizedLat = roundCoordinate(lat, 3);
+    const normalizedLon = roundCoordinate(lon, 3);
     const res = http.get(
-        `${BASE_URL}/api/v1/geocode/reverse?lat=${lat}&lon=${lon}`,
+        `${BASE_URL}/api/v1/geocode/reverse?lat=${normalizedLat}&lon=${normalizedLon}`,
         { headers: getHeaders(), tags: { name: 'reverse_geocode', type: 'read' } }
     );
     check(res, { '역지오코딩 성공 (200)': (r) => r.status === 200 });
@@ -1367,13 +1410,29 @@ function buildEvent(eventName, properties = {}) {
     };
 }
 
-export function sendAnalyticsEvents(token, events) {
+function buildVuAnonymousId() {
+    const testId = (__ENV.TEST_ID || 'local-run').replace(/[^a-zA-Z0-9_-]/g, '-');
+    const vu = typeof __VU === 'number' && __VU > 0 ? __VU : 0;
+    return `k6-${testId}-vu-${vu}`;
+}
+
+export function sendAnalyticsEvents(token, events, anonymousId = null) {
     if (!events || events.length === 0) return null;
-    const payload = JSON.stringify({ events: events });
+    const resolvedAnonymousId = anonymousId || buildVuAnonymousId();
+    const headers = getHeaders(token);
+
+    if (resolvedAnonymousId) {
+        headers['X-Anonymous-Id'] = resolvedAnonymousId;
+    }
+
+    const payload = JSON.stringify({
+        anonymousId: resolvedAnonymousId,
+        events: events,
+    });
     const res = http.post(
         `${BASE_URL}/api/v1/analytics/events`,
         payload,
-        { headers: getHeaders(token), tags: { name: 'analytics_events', type: 'write' } }
+        { headers, tags: { name: 'analytics_events', type: 'write' } }
     );
     check(res, { '분석 이벤트 전송 성공 (200)': (r) => r.status === 200 });
     return res;
@@ -1457,7 +1516,7 @@ export function executeBrowsingJourney(state) {
         }
     }
 
-    sendAnalyticsEvents(state.token, analyticsEvents);
+    sendAnalyticsEvents(state.token, analyticsEvents, state.anonymousId);
     return successCount;
 }
 
@@ -1527,7 +1586,7 @@ export function executeSearchingJourney(state) {
         }
     }
 
-    sendAnalyticsEvents(state.token, analyticsEvents);
+    sendAnalyticsEvents(state.token, analyticsEvents, state.anonymousId);
     return successCount;
 }
 
@@ -1571,7 +1630,7 @@ export function executeGroupJourney(state) {
     // [사용자 이벤트] 모든 알림 읽음 처리
     markAllNotificationsRead(state.token);
 
-    sendAnalyticsEvents(state.token, analyticsEvents);
+    sendAnalyticsEvents(state.token, analyticsEvents, state.anonymousId);
     return successCount;
 }
 
@@ -1633,7 +1692,7 @@ export function executePersonalJourney(state) {
     // [사용자 이벤트] 알림 읽음 처리 (notifId 있으면)
     markNotificationRead(state.token, notifId);
 
-    sendAnalyticsEvents(state.token, analyticsEvents);
+    sendAnalyticsEvents(state.token, analyticsEvents, state.anonymousId);
     return successCount;
 }
 
@@ -1669,7 +1728,7 @@ export function executeWritingJourney(state) {
         analyticsEvents.push(buildEvent('ui.review.submitted', { restaurantId }));
     }
 
-    sendAnalyticsEvents(state.token, analyticsEvents);
+    sendAnalyticsEvents(state.token, analyticsEvents, state.anonymousId);
     return successCount;
 }
 
@@ -1716,7 +1775,7 @@ export function executeSubgroupJourney(state) {
 
     const chatRoomId = pickChatRoomId(state) || (chatRoomResult && chatRoomResult.chatRoomId) || state.chatRoomId;
     if (!chatRoomId) {
-        sendAnalyticsEvents(state.token, analyticsEvents);
+        sendAnalyticsEvents(state.token, analyticsEvents, state.anonymousId);
         return successCount;
     }
 
@@ -1735,7 +1794,7 @@ export function executeSubgroupJourney(state) {
         updateChatReadCursor(state.token, chatRoomId, lastMessageId);
     }
 
-    sendAnalyticsEvents(state.token, analyticsEvents);
+    sendAnalyticsEvents(state.token, analyticsEvents, state.anonymousId);
     return successCount;
 }
 
@@ -1793,6 +1852,6 @@ export function executeChatJourney(state) {
         updateChatReadCursor(state.token, chatRoomId, lastMessageId);
     }
 
-    sendAnalyticsEvents(state.token, analyticsEvents);
+    sendAnalyticsEvents(state.token, analyticsEvents, state.anonymousId);
     return successCount;
 }
