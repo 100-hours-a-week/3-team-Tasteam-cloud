@@ -1504,15 +1504,43 @@
           "text": "stg",
           "value": "stg"
         },
+        "includeAll": false,
+        "label": "Environment",
+        "name": "env",
+        "options": [
+          {
+            "selected": false,
+            "text": "prod",
+            "value": "prod"
+          },
+          {
+            "selected": true,
+            "text": "stg",
+            "value": "stg"
+          },
+          {
+            "selected": false,
+            "text": "dev",
+            "value": "dev"
+          }
+        ],
+        "query": "prod,stg,dev",
+        "type": "custom"
+      },
+      {
+        "current": {
+          "text": "stg",
+          "value": "stg"
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "PBFA97CFB590B2093"
         },
-        "definition": "label_values(redis_up, namespace)",
+        "definition": "label_values(redis_up{environment=~\"$env\"}, namespace)",
         "includeAll": false,
         "name": "namespace",
         "options": [],
-        "query": "label_values(redis_up, namespace)",
+        "query": "label_values(redis_up{environment=~\"$env\"}, namespace)",
         "refresh": 2,
         "regex": "",
         "sort": 1,

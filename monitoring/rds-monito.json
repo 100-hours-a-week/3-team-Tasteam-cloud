@@ -3616,17 +3616,22 @@
         "name": "env",
         "options": [
           {
-            "selected": true,
+            "selected": false,
             "text": "prod",
             "value": "prod"
           },
           {
-            "selected": false,
+            "selected": true,
             "text": "stg",
             "value": "stg"
+          },
+          {
+            "selected": false,
+            "text": "dev",
+            "value": "dev"
           }
         ],
-        "query": "prod,stg",
+        "query": "prod,stg,dev",
         "type": "custom"
       },
       {

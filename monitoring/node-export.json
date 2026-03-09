@@ -15646,17 +15646,26 @@
           "text": "stg",
           "value": "stg"
         },
-        "definition": "label_values(up,environment)",
         "name": "env",
-        "options": [],
-        "query": {
-          "qryType": 1,
-          "query": "label_values(up,environment)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
-        "refresh": 1,
-        "regex": "",
-        "type": "query"
+        "options": [
+          {
+            "selected": false,
+            "text": "prod",
+            "value": "prod"
+          },
+          {
+            "selected": true,
+            "text": "stg",
+            "value": "stg"
+          },
+          {
+            "selected": false,
+            "text": "dev",
+            "value": "dev"
+          }
+        ],
+        "query": "prod,stg,dev",
+        "type": "custom"
       },
       {
         "current": {

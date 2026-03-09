@@ -3,6 +3,37 @@
     "title": "Spring Boot Application Monitoring",
     "tags": ["spring-boot", "jvm", "metrics"],
     "timezone": "browser",
+    "templating": {
+      "list": [
+        {
+          "name": "env",
+          "label": "Environment",
+          "type": "custom",
+          "query": "prod,stg,dev",
+          "current": {
+            "text": "stg",
+            "value": "stg"
+          },
+          "options": [
+            {
+              "selected": false,
+              "text": "prod",
+              "value": "prod"
+            },
+            {
+              "selected": true,
+              "text": "stg",
+              "value": "stg"
+            },
+            {
+              "selected": false,
+              "text": "dev",
+              "value": "dev"
+            }
+          ]
+        }
+      ]
+    },
     "panels": [
       {
         "title": "JVM Memory Used",
@@ -10,7 +41,7 @@
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
         "targets": [
           {
-            "expr": "sum(jvm_memory_used_bytes{job=\"spring-boot-app\"})",
+            "expr": "sum(jvm_memory_used_bytes{job=\"spring-boot-app\", environment=~\"$env\"})",
             "legendFormat": "Used Memory"
           }
         ]
@@ -21,7 +52,7 @@
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
         "targets": [
           {
-            "expr": "system_cpu_usage{job=\"spring-boot-app\"}",
+            "expr": "system_cpu_usage{job=\"spring-boot-app\", environment=~\"$env\"}",
             "legendFormat": "CPU Usage"
           }
         ]
@@ -32,7 +63,7 @@
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
         "targets": [
           {
-            "expr": "rate(http_server_requests_seconds_count{job=\"spring-boot-app\"}[5m])",
+            "expr": "rate(http_server_requests_seconds_count{job=\"spring-boot-app\", environment=~\"$env\"}[5m])",
             "legendFormat": "{{uri}} - {{method}}"
           }
         ]
@@ -43,7 +74,7 @@
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
         "targets": [
           {
-            "expr": "hikaricp_connections_active{job=\"spring-boot-app\"}",
+            "expr": "hikaricp_connections_active{job=\"spring-boot-app\", environment=~\"$env\"}",
             "legendFormat": "Active Connections"
           }
         ]

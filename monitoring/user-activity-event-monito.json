@@ -945,22 +945,28 @@
           "text": "stg",
           "value": "stg"
         },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
-        },
-        "definition": "label_values(up{job=\"spring\"}, environment)",
         "includeAll": false,
         "label": "환경",
         "name": "env",
-        "options": [],
-        "query": {
-          "query": "label_values(up{job=\"spring\"}, environment)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
-        "refresh": 1,
-        "sort": 1,
-        "type": "query"
+        "options": [
+          {
+            "selected": false,
+            "text": "prod",
+            "value": "prod"
+          },
+          {
+            "selected": true,
+            "text": "stg",
+            "value": "stg"
+          },
+          {
+            "selected": false,
+            "text": "dev",
+            "value": "dev"
+          }
+        ],
+        "query": "prod,stg,dev",
+        "type": "custom"
       },
       {
         "current": {
