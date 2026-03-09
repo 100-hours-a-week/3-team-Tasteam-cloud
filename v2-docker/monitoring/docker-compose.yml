@@ -40,7 +40,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
 
   alloy:
-    image: grafana/alloy:latest
+    image: grafana/alloy:v1.14.0-rc.1
     container_name: alloy
     restart: unless-stopped
     ports:
