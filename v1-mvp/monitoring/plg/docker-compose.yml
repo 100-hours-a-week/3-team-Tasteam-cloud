@@ -10,13 +10,13 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=3d'  # 메모리 절약을 위해 3일만 보관
+      - '--storage.tsdb.retention.time=3d'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
-      - '--web.enable-remote-write-receiver' # k6 메트릭 수신용
+      - '--web.enable-remote-write-receiver'
     restart: unless-stopped
     extra_hosts:
-      - "host.docker.internal:host-gateway"  # 호스트의 Spring 앱 접근용
+      - "host.docker.internal:host-gateway"
     networks:
       - monitoring
 
@@ -28,7 +28,7 @@ services:
     volumes:
       - ./loki/loki-config.yml:/etc/loki/local-config.yaml
       - loki-data:/loki
-      - ./logs:/var/log/spring  # Spring 로그 파일 마운트
+      - ./logs:/var/log/spring
     command: -config.file=/etc/loki/local-config.yaml
     restart: unless-stopped
     networks:
@@ -44,6 +44,24 @@ services:
     restart: unless-stopped
     depends_on:
       - loki
+    networks:
+      - monitoring
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: unless-stopped
     networks:
       - monitoring
 
