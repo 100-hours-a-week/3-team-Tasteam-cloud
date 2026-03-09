@@ -67,6 +67,7 @@ prometheus.scrape "caddy" {
     __address__      = "caddy:2019",
     __metrics_path__ = "/metrics",
     job              = "caddy",
+    instance         = sys.env("HOSTNAME"),
   }]
   forward_to = [prometheus.relabel.caddy.receiver]
 }
