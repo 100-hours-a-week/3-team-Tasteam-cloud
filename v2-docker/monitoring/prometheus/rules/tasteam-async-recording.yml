@@ -1,0 +1,18 @@
+groups:
+  - name: tasteam_async_recording
+    interval: 30s
+    rules:
+      # 알림 소비자 성공률 (5분 윈도우)
+      - record: tasteam:notification_consumer_success_ratio_5m
+        expr: |
+          (sum(increase(notification_consumer_process_total{result="success"}[5m])) or vector(0))
+          /
+          clamp_min((sum(increase(notification_consumer_process_total[5m])) or vector(0)), 1)
+
+      # 알림 소비자 DLQ 증가량 (5분 윈도우)
+      - record: tasteam:notification_consumer_dlq_5m
+        expr: sum(increase(notification_consumer_dlq_total{result="success"}[5m]))
+
+      # 리플레이 실패율 (5분 윈도우)
+      - record: tasteam:replay_fail_rate_5m
+        expr: sum(rate(analytics_user_activity_replay_processed_total{result="fail"}[5m]))

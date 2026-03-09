@@ -2,6 +2,9 @@ global:
   scrape_interval: 30s
   evaluation_interval: 30s
 
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
 # 모든 메트릭은 각 EC2의 Alloy가 prometheus.remote_write로 직접 push
 # - Spring Actuator: alloy-app.alloy의 prometheus.scrape "spring"
 # - node_exporter / cAdvisor / Redis: alloy-*.alloy의 prometheus.scrape "infra"
