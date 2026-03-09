@@ -1,6 +1,6 @@
 (app_site) {
-    import snippets/toggles/encode/{$ENCODE_PROFILE:gzip_zstd}.caddy
-    import snippets/toggles/log/{$ACCESS_LOG_PROFILE:on}.caddy
+    import toggles/encode/{$ENCODE_PROFILE:gzip_zstd}.caddy
+    import toggles/log/{$ACCESS_LOG_PROFILE:on}.caddy
 
     @api {
         path /api/*
@@ -17,7 +17,7 @@
         not client_ip 211.244.225.166
     }
 
-    import snippets/toggles/ratelimit/{$RATE_LIMIT_PROFILE:on}.caddy
+    import toggles/ratelimit/{$RATE_LIMIT_PROFILE:on}.caddy
 
     handle /api/v1/swagger-ui/* {
         basic_auth {
