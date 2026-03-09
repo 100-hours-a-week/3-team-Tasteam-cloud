@@ -45,3 +45,5 @@ sudo chown -R 10001:10001 loki/data
 sudo chown -R 472:472     grafana/data
 
 docker compose up -d
+# 바인드 마운트 설정 파일 변경 시 반영 (compose up은 감지 못함)
+docker compose restart
