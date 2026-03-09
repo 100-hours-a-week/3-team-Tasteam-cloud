@@ -691,6 +691,7 @@ locals {
   backend_stg_ssm_session_users = {
     clay  = aws_iam_user.backend_full_access_clay.name
     devon = aws_iam_user.backend_readonly_paramstore["devon"].name
+    jayvi = aws_iam_user.backend_readonly_paramstore["jayvi"].name
     jian  = aws_iam_user.backend_readonly_paramstore["jian"].name
     sei   = aws_iam_user.backend_readonly_paramstore["sei"].name
   }
@@ -711,8 +712,8 @@ resource "aws_iam_policy" "backend_stg_ssm_session_access" {
         ]
         Resource = "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*"
         Condition = {
-          StringEquals = {
-            "ssm:resourceTag/Environment" = "stg"
+          StringLike = {
+            "ssm:resourceTag/Name" = "stg-ec2-*"
           }
         }
       },

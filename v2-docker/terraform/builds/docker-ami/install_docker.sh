@@ -24,4 +24,10 @@ sudo systemctl enable --now docker
 # Add ubuntu user to docker group
 sudo usermod -aG docker ubuntu || true
 
+# Install and enable SSM Agent for Session Manager
+if ! command -v amazon-ssm-agent >/dev/null 2>&1; then
+  sudo apt install -y amazon-ssm-agent || sudo snap install amazon-ssm-agent --classic
+fi
+sudo systemctl enable --now amazon-ssm-agent || sudo snap start amazon-ssm-agent || true
+
 echo "Docker installed successfully! Please exit and log back in to apply group permissions."

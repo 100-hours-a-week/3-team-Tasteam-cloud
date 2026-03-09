@@ -1,9 +1,6 @@
 (app_site) {
-    encode gzip zstd
-
-    log {
-        format json
-    }
+    import snippets/toggles/encode/{$ENCODE_PROFILE:gzip_zstd}.caddy
+    import snippets/toggles/log/{$ACCESS_LOG_PROFILE:on}.caddy
 
     @api {
         path /api/*
@@ -20,29 +17,7 @@
         not client_ip 211.244.225.166
     }
 
-    rate_limit @api {
-        zone api_limit {
-            key {client_ip}
-            events 500
-            window 1s
-        }
-    }
-
-    rate_limit @swagger {
-        zone swagger_limit {
-            key {client_ip}
-            events 20
-            window 1m
-        }
-    }
-
-    rate_limit @admin {
-        zone admin_limit {
-            key {client_ip}
-            events 50
-            window 1m
-        }
-    }
+    import snippets/toggles/ratelimit/{$RATE_LIMIT_PROFILE:on}.caddy
 
     handle /api/v1/swagger-ui/* {
         basic_auth {
@@ -50,7 +25,10 @@
         }
         reverse_proxy {$SPRING_UPSTREAM} {
             transport http {
-                max_conns_per_host 200
+                max_conns_per_host {$UPSTREAM_MAX_CONNS:200}
+                dial_timeout {$UPSTREAM_DIAL_TIMEOUT:3s}
+                response_header_timeout {$UPSTREAM_RESPONSE_HEADER_TIMEOUT:10s}
+                read_timeout {$UPSTREAM_READ_TIMEOUT:30s}
             }
         }
     }
@@ -58,7 +36,9 @@
     handle /ws* {
         reverse_proxy {$SPRING_UPSTREAM} {
             transport http {
-                max_conns_per_host 1000
+                max_conns_per_host {$UPSTREAM_WS_MAX_CONNS:1000}
+                dial_timeout {$UPSTREAM_DIAL_TIMEOUT:3s}
+                response_header_timeout {$UPSTREAM_RESPONSE_HEADER_TIMEOUT:10s}
             }
         }
     }
@@ -66,7 +46,10 @@
     handle /api/* {
         reverse_proxy {$SPRING_UPSTREAM} {
             transport http {
-                max_conns_per_host 200
+                max_conns_per_host {$UPSTREAM_MAX_CONNS:200}
+                dial_timeout {$UPSTREAM_DIAL_TIMEOUT:3s}
+                response_header_timeout {$UPSTREAM_RESPONSE_HEADER_TIMEOUT:10s}
+                read_timeout {$UPSTREAM_READ_TIMEOUT:30s}
             }
         }
     }
@@ -74,7 +57,10 @@
     handle /admin* {
         reverse_proxy {$SPRING_UPSTREAM} {
             transport http {
-                max_conns_per_host 200
+                max_conns_per_host {$UPSTREAM_MAX_CONNS:200}
+                dial_timeout {$UPSTREAM_DIAL_TIMEOUT:3s}
+                response_header_timeout {$UPSTREAM_RESPONSE_HEADER_TIMEOUT:10s}
+                read_timeout {$UPSTREAM_READ_TIMEOUT:30s}
             }
         }
     }
