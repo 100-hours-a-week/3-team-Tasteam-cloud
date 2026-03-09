@@ -621,9 +621,18 @@ resource "aws_iam_user_policy_attachment" "backend_readonly_access" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
-resource "aws_iam_user_policy_attachment" "backend_ec2_full_access_jayvi" {
-  user       = aws_iam_user.backend_readonly_paramstore["jayvi"].name
+resource "aws_iam_user_policy_attachment" "backend_ec2_full_access" {
+  for_each = local.backend_readonly_paramstore_users
+
+  user       = aws_iam_user.backend_readonly_paramstore[each.key].name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+}
+
+resource "aws_iam_user_policy_attachment" "backend_ec2_instance_connect" {
+  for_each = local.backend_readonly_paramstore_users
+
+  user       = aws_iam_user.backend_readonly_paramstore[each.key].name
+  policy_arn = "arn:aws:iam::aws:policy/EC2InstanceConnect"
 }
 
 resource "aws_iam_user_policy_attachment" "backend_change_password" {
@@ -631,6 +640,11 @@ resource "aws_iam_user_policy_attachment" "backend_change_password" {
 
   user       = aws_iam_user.backend_readonly_paramstore[each.key].name
   policy_arn = "arn:aws:iam::aws:policy/IAMUserChangePassword"
+}
+
+moved {
+  from = aws_iam_user_policy_attachment.backend_ec2_full_access_jayvi
+  to   = aws_iam_user_policy_attachment.backend_ec2_full_access["jayvi"]
 }
 
 resource "aws_iam_user_login_profile" "backend_console_login" {
