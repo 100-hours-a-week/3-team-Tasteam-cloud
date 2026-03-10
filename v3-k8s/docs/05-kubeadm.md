@@ -240,17 +240,208 @@ CNI는 Pod에 IP를 할당하고, Pod 간 통신 경로를 설정하며, Network
 - **검증된 조합**: kubeadm + Calico는 가장 보편적인 조합으로 트러블슈팅 자료가 풍부
 - **eBPF 전환 가능**: 필요 시 iptables → eBPF 데이터플레인 전환으로 kube-proxy 대체 가능 (설정 변경만으로 전환)
 
-### 4.4 결정: (팀 논의 필요)
+### 4.4 결정: Calico (iptables) + Linkerd
 
-**선택지 A — Calico (안정성 우선)**
-현재 팀 역량과 운영 안정성을 우선시하는 경우. Service Mesh가 필요해지면 Istio를 추가 도입합니다.
+CNI는 **Calico (iptables 데이터플레인)**, Service Mesh는 **Linkerd**를 사용합니다.
 
-**선택지 B — Cilium (확장성 우선)**
-초기 학습 비용을 감수하고, CNI + Service Mesh + Observability를 단일 도구로 운영합니다.
+#### 4.4.1 eBPF를 선택하지 않은 이유
 
-### 4.5 NetworkPolicy 운영 방침 (CNI 공통)
+Cilium의 eBPF 네이티브 아키텍처는 기술적으로 우수하지만, 현재 팀 상황에서는 iptables가 적합합니다.
 
-어떤 CNI를 선택하든 아래 순서로 NetworkPolicy를 적용합니다.
+| 판단 기준 | 현재 상황 |
+|-----------|-----------|
+| Service 규모 | ~10–20개 수준. iptables 규칙 수가 성능에 영향을 미치는 임계점(수백~수천 규칙)에 한참 못 미침 |
+| kube-proxy 부하 | Service 수 적어 iptables 순차 탐색(O(N))이 문제되지 않음. eBPF 해시맵(O(1))의 이점이 체감되지 않는 규모 |
+| 팀 역량 | eBPF 운영 경험 없음. 장애 시 `bpftool`, `cilium monitor` 등 전용 도구 학습이 선행되어야 함 |
+| 트러블슈팅 | iptables는 `iptables -L`, `route -n`, `tcpdump`로 디버깅 가능. 검색 시 해결 사례 풍부 |
+| 전환 경로 | Calico는 설정 변경만으로 iptables → eBPF 데이터플레인 전환 가능. 규모가 커지면 그때 전환해도 늦지 않음 |
+
+eBPF는 Service가 수백 개 이상으로 늘어나 iptables 규칙 탐색이 레이턴시에 영향을 주기 시작할 때, 또는 L7 정책이나 Sidecar 없는 Service Mesh가 필수적이 될 때 검토합니다.
+
+#### 4.4.2 Service Mesh 도입 배경
+
+인프라 팀은 백엔드로부터 jar 파일을 받아 배포하는 구조입니다. 애플리케이션 코드를 수정할 수 없습니다.
+
+서비스 간 통신에서 필요한 아래 기능들을 애플리케이션 코드 변경 없이 인프라 레벨에서 제공하려면 Service Mesh가 필요합니다.
+
+| 기능 | 필요 이유 |
+|------|-----------|
+| **mTLS** | Pod 간 통신 암호화. 인프라에서 투명하게 적용해야 하며 애플리케이션이 TLS 설정을 직접 관리하지 않아도 됨 |
+| **재시도/타임아웃** | 일시적 네트워크 오류나 Pod 재시작 시 자동 재시도. 백엔드 코드에 retry 로직을 심지 않아도 인프라에서 처리 |
+| **서킷브레이커** | 장애 서비스로의 요청을 차단하여 연쇄 장애 방지 |
+| **Observability** | 서비스 간 성공률, 레이턴시, RPS를 인프라 레벨에서 수집하여 장애 원인 파악 |
+
+#### 4.4.3 Linkerd 선택 이유
+
+Service Mesh 중 Istio와 Linkerd를 비교했습니다.
+
+| 항목 | Istio | Linkerd |
+|------|-------|---------|
+| 프록시 | Envoy (C++) | linkerd2-proxy (Rust) |
+| Sidecar 리소스 | Pod당 ~50–100MB | Pod당 ~10–20MB |
+| 설치 복잡도 | 높음 (CRD 다수, 설정 옵션 방대) | `linkerd install \| kubectl apply` 수준 |
+| L7 라우팅 | 고급 (헤더 기반, 가중치, fault injection) | 기본 (retry, timeout, traffic split) |
+| 프록시 확장성 | WASM 필터로 커스텀 로직 삽입 가능 | 불가 (Rust 프록시, 확장 불가) |
+| 비HTTP 프로토콜 | 네이티브 지원 (gRPC, TCP, MongoDB 등) | TCP는 opaque 모드 (L7 기능 미적용) |
+| Observability | Kiali 등 별도 구성 필요 | **대시보드 내장** (성공률, 레이턴시, RPS) |
+
+**Istio 대비 Linkerd가 약한 점**
+
+- L7 라우팅/정책 표현 범위가 좁음 (헤더 기반 라우팅, fault injection 등 미지원)
+- 프록시 확장성 없음 (Envoy WASM 같은 커스텀 필터 불가)
+- 비HTTP 프로토콜은 opaque TCP로만 처리 (L7 기능 미적용)
+
+**팀 기준에서 Linkerd가 충분한 점**
+
+- mTLS 자동 적용 (설치만 하면 Pod 간 통신 암호화)
+- 재시도/타임아웃 설정 (ServiceProfile CRD로 경로별 정의)
+- Observability: 서비스별 성공률, 레이턴시, RPS를 대시보드에서 바로 확인
+- 설치/운영이 단순하여 학습 비용이 낮음
+- 카나리 배포, 트래픽 분할 기본 지원
+
+**결론**: 우리 팀의 요구는 **보안(mTLS) + 기본 안정성(retry/timeout) + Observability**입니다.
+복잡한 L7 실험(헤더 기반 라우팅, WASM 필터)은 현재 필요하지 않으므로, Linkerd의 기능 범위로 충분합니다.
+Istio의 추가 기능은 운영 복잡도 증가 대비 현재 얻을 수 있는 이점이 적습니다.
+
+#### 4.4.4 Linkerd 운영 범위
+
+| 구분 | 적용 | 비고 |
+|------|------|------|
+| mTLS | ✅ | 전 서비스 자동 적용 |
+| 재시도/타임아웃 | ✅ | 핵심 서비스(API → DB, API → AI) 경로에 적용 |
+| 기본 메트릭 관측 | ✅ | 성공률, 레이턴시, RPS — Linkerd 대시보드 + Prometheus 연동 |
+| 카나리/트래픽 분할 | △ | 필요 시 단계적 도입 |
+| 고급 L7 라우팅 | ❌ | 헤더 기반 라우팅, fault injection 등은 범위 밖 |
+| 커스텀 프록시 필터 | ❌ | WASM 등 프록시 확장은 범위 밖 |
+
+> **라이선스 참고**: Linkerd의 stable 릴리스는 2024년부터 BUSL로 변경되었으나, edge 릴리스는 Apache 2.0을 유지하고 있습니다. Buoyant(개발사)는 계속 운영 중이며, WeaveNet(폐업)과는 상황이 다릅니다. edge 릴리스를 사용하면 라이선스 제약 없이 운영 가능합니다.
+
+### 4.5 Ingress 및 라우팅 정책
+
+#### 4.5.1 외부 트래픽 진입 구조
+
+현재 Caddy가 담당하는 외부 진입점(443)을 **ALB + Ingress Controller**로 전환합니다.
+
+```
+[클라이언트]
+    │
+    ▼
+[Cloudflare] ── DNS + CDN (정적 파일은 S3 + CloudFront)
+    │
+    ▼
+[ALB] ── TLS 종단, 헬스체크
+    │
+    ▼
+[Ingress Controller (NGINX)] ── 경로 기반 라우팅
+    │
+    ├── /api/*        → Spring Boot Service (ClusterIP)
+    ├── /ai/*         → FastAPI Service (ClusterIP)
+    └── /ws/*         → Spring Boot Service (WebSocket)
+```
+
+#### 4.5.2 Ingress Controller 선택: NGINX
+
+| 항목 | NGINX Ingress | AWS ALB Ingress |
+|------|---------------|-----------------|
+| 라우팅 제어 | 세밀함 (rewrite, rate limit, custom header) | ALB 규칙 기반 (제한적) |
+| WebSocket 타임아웃 | **Ingress 경로별로 read/send timeout 분리 설정 가능** | idle timeout만 제공 (방향 구분 없음) |
+| kubeadm 호환 | 추가 설정 없이 동작 | EKS 최적화, kubeadm에서 추가 설정 필요 |
+| 클라우드 종속 | 없음 | AWS 종속 (ALB Controller 필요) |
+
+**WebSocket 안정성에서 NGINX를 선택한 이유**
+
+Cloudflare → ALB → NGINX Ingress 구조에서 WebSocket 연결이 끊어지는 원인은 대부분 **타임아웃 설정의 부조화**입니다.
+
+NGINX Ingress는 WebSocket 경로에 **방향별 타임아웃**을 제공합니다.
+
+| annotation | 의미 | WebSocket에서의 역할 |
+|------------|------|---------------------|
+| `proxy-read-timeout` | 업스트림(Pod)에서 데이터를 기다리는 시간 | 서버가 메시지/ping을 안 보낼 때 NGINX가 끊는 기준 |
+| `proxy-send-timeout` | 업스트림(Pod)으로 데이터를 보내는 시간 | 클라이언트 메시지를 백엔드로 전달할 때 백엔드가 안 받으면 끊는 기준 |
+
+ALB는 `idle_timeout.timeout_seconds`(양방향 무트래픽 유휴 시간)만 제어할 수 있어, 경로별 세밀한 타임아웃 조정이 불가능합니다.
+
+우리 서비스는 `/api`(짧은 REST)와 `/ws`(장시간 WebSocket)의 타임아웃 요구가 완전히 다릅니다.
+NGINX Ingress는 **Ingress 리소스 단위로 annotation을 분리**할 수 있어, `/ws`에만 긴 타임아웃을 적용하고 `/api`는 기본값을 유지하는 구성이 가능합니다.
+
+> **운영 주의**: Cloudflare → ALB → NGINX 체인에서 **가장 짧은 타임아웃이 실제 한계**입니다.
+> WebSocket ping/pong heartbeat 주기를 모든 레이어의 타임아웃보다 짧게 설정해야 유휴 종료를 방지할 수 있습니다.
+
+#### 4.5.3 Ingress 규칙 예시
+
+WebSocket(`/ws`)과 일반 API(`/api`, `/ai`)를 **별도 Ingress 리소스로 분리**하여 타임아웃을 독립 관리합니다.
+
+```yaml
+# 일반 API Ingress — 기본 타임아웃 사용
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tasteam-api-ingress
+  namespace: app
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: tasteam.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: spring-boot-svc
+                port:
+                  number: 8080
+          - path: /ai
+            pathType: Prefix
+            backend:
+              service:
+                name: fastapi-svc
+                port:
+                  number: 8000
+---
+# WebSocket Ingress — 장시간 연결 유지
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tasteam-ws-ingress
+  namespace: app
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: tasteam.example.com
+      http:
+        paths:
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: spring-boot-svc
+                port:
+                  number: 8080
+```
+
+`/api`, `/ai`는 기본 타임아웃(60초)으로 충분하고, `/ws`만 3600초로 설정하여 채팅 연결이 유지되도록 합니다.
+
+#### 4.5.4 내부 서비스 간 통신
+
+Pod 간 내부 통신은 K8s **ClusterIP Service + DNS**로 처리합니다.
+
+```
+Spring Boot Pod → fastapi-svc.app.svc.cluster.local:8000 → FastAPI Pod
+```
+
+- 서비스 디스커버리: CoreDNS가 Service 이름을 자동 해석
+- 로드밸런싱: kube-proxy(iptables)가 Service IP → 실제 Pod IP로 분산
+- mTLS: Linkerd Sidecar가 투명하게 암호화 처리
+
+외부 Cloud Map, Lambda SD 같은 별도 디스커버리 체인이 불필요합니다.
+
+### 4.6 NetworkPolicy 운영 방침
+
+아래 순서로 NetworkPolicy를 적용합니다.
 
 | 순서 | 정책 | 설명 |
 |------|------|------|
@@ -284,11 +475,13 @@ spec:
           port: 5432
 ```
 
-### 4.6 암호화 정책
+### 4.7 암호화 정책
 
-노드 간 Pod 트래픽은 기본적으로 평문 전송됩니다.
-Calico, Cilium 모두 WireGuard를 통해 필요 시 전송 구간 암호화를 선택적으로 활성화할 수 있습니다.
-기본적으로는 비활성화하여 성능을 확보하고, 민감한 데이터가 오가는 구간이 식별되면 활성화합니다.
+서비스 간 통신 암호화는 **Linkerd mTLS**가 기본으로 처리합니다.
+Linkerd가 설치된 namespace의 Pod 간 통신은 자동으로 mTLS가 적용되므로, 별도 인증서 관리 없이 전송 구간 암호화가 확보됩니다.
+
+Calico WireGuard는 Linkerd가 관여하지 않는 구간(예: Linkerd mesh 외부의 시스템 Pod 간 통신)에서 필요할 경우 선택적으로 활성화합니다.
+기본적으로는 Linkerd mTLS만으로 충분하며, WireGuard는 비활성화 상태로 시작합니다.
 
 ## 5. 서비스 배포 전략
 
