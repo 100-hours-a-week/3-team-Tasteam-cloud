@@ -556,6 +556,57 @@ spec:
 ## 7. 배포 고도화 (Helm, ArgoCD)
 
 ## 8. 장애 대응 및 자동 복구
+### 8.1 Pod 레벨
+
+| 장애 유형 | 대응 | 설정 |
+|-----------|------|------|
+| 컨테이너 crash | 자동 재시작 | `restartPolicy: Always` (Deployment 기본값) |
+| 프로세스 hang | liveness probe 실패 → 재시작 | `livenessProbe` (5.4 참조) |
+| 배포 중 트래픽 유입 | readiness probe 통과 전 트래픽 제외 | `readinessProbe` (5.4 참조) |
+
+### 8.2 WebSocket 연결 보호
+
+```yaml
+# Pod 종료 시 기존 연결을 정리할 시간 확보
+terminationGracePeriodSeconds: 60
+---
+# 동시에 내려갈 수 있는 Pod 수 제한
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: spring-boot-pdb
+  namespace: app
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: spring-boot
+```
+
+배포나 노드 유지보수 시에도 최소 1개의 Spring Boot Pod가 항상 유지되어 WebSocket 연결이 전부 끊어지는 상황을 방지합니다.
+
+### 8.3 노드 레벨
+
+| 장애 유형 | K8s 자동 대응 |
+|-----------|--------------|
+| 워커 노드 1대 장애 | 해당 노드의 Pod를 다른 노드로 자동 재스케줄링 (N+1 설계로 수용 가능) |
+| 마스터 노드 1대 장애 | etcd 쿼럼 유지 (3대 중 2대 생존), API Server는 NLB가 정상 노드로 라우팅 |
+| 마스터 노드 2대 장애 | etcd 쿼럼 상실 → 컨트롤플레인 중단 (기존 Pod는 계속 동작, 새 배포/스케일링 불가) |
+
+### 8.4 etcd 백업
+
+마스터 노드 전체 장애에 대비하여 etcd를 정기적으로 백업합니다.
+
+```bash
+# etcd 스냅샷 백업
+ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-snapshot.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+```
+
+백업 주기와 저장 위치(S3 등)는 운영 단계에서 결정합니다.
 
 ## 9. 클러스터 구성도
 
