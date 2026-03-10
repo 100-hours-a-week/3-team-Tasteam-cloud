@@ -194,101 +194,6 @@ t3.medium (2vCPU, 4GB) 기준으로, 시스템 예약과 DaemonSet을 제외한 
 | 워커 (애플리케이션) | 4 | t3.medium (2vCPU, 4GB) | 2a × 2, 2c × 2 |
 | **합계** | **7대** | | |
 
-## 4. CNI 네트워크 구성
-
-### 4.1 CNI란
-
-Kubernetes는 자체적으로 Pod 간 네트워크 구현을 포함하지 않고, CNI(Container Network Interface) 플러그인에 위임합니다.
-CNI는 Pod에 IP를 할당하고, Pod 간 통신 경로를 설정하며, NetworkPolicy를 적용하는 역할을 합니다.
-
-### 4.2 후보 선별
-
-| CNI | NetworkPolicy | 네트워크 방식 | 프로젝트 상태 | 판정 |
-|-----|---------------|--------------|--------------|------|
-| Flannel | 미지원 | VXLAN 오버레이 | CoreOS(Red Hat) | **제외** |
-| WeaveNet | 기본 지원 | 자체 프로토콜 메시 오버레이 | Weaveworks **2024년 폐업** | **제외** |
-| Calico | L3/L4 지원 | BGP 직접 라우팅 | Tigera + CNCF | 최종 후보 |
-| Cilium | L3/L4 + L7 지원 | eBPF 네이티브 | Isovalent(Cisco) + CNCF | 최종 후보 |
-
-**Flannel 제외**: Kubernetes의 기본 네트워크는 모든 Pod 간 통신이 열려있는 flat network입니다. Security Group은 EC2(노드) 레벨이라 Pod 단위 트래픽 제어가 불가능하므로, Pod 간 최소 권한 원칙을 적용하려면 NetworkPolicy가 필수적입니다. Flannel은 이를 지원하지 않습니다.
-
-**WeaveNet 제외**: Weaveworks가 2024년에 폐업했습니다. CNI는 한번 선택하면 교체 시 클러스터 재구성이 필요하므로, 유지보수가 불투명한 프로젝트는 프로덕션에서 리스크가 큽니다.
-
-### 4.3 최종 비교: Calico vs Cilium
-
-| 항목 | Calico | Cilium |
-|------|--------|--------|
-| 데이터플레인 | iptables (기본), eBPF (옵션) | eBPF 네이티브 |
-| NetworkPolicy | L3/L4 | L3/L4 + **L7 (HTTP 메서드/경로 제어)** |
-| Service Mesh | 미지원 (Istio 별도 설치 → Sidecar 발생) | **자체 내장 (Sidecar 불필요)** |
-| Observability | 기본적 | **Hubble 내장 (트래픽 시각화/추적)** |
-| 라우팅 | BGP 직접 라우팅 (L3, 오버레이 없음) | VXLAN/Geneve (오버레이) |
-| 암호화 | WireGuard (선택적) | WireGuard / IPsec (선택적) |
-| 커널 요구사항 | 제한 거의 없음 | **5.10+ 필수** |
-| 트러블슈팅 | iptables -L, route -n 등 기존 도구 | 전용 도구 필요 (bpftool, cilium monitor) |
-
-#### Cilium의 강점
-
-- **L7 NetworkPolicy**: 인프라 레벨에서 HTTP 메서드/경로까지 접근 제어 가능
-- **Service Mesh 내장**: 별도 Istio 없이 mTLS, 재시도, 로드밸런싱을 eBPF로 처리. Sidecar가 없어 리소스 오버헤드 없음
-- **Hubble**: 네트워크 트래픽 흐름을 시각화하고 추적하는 Observability 도구 내장
-
-#### Calico의 강점
-
-- **운영 안정성**: iptables 기반이라 기존 리눅스 네트워크 지식으로 디버깅 가능
-- **BGP 직접 라우팅**: 온프레미스 L2 환경에서 오버레이 없이 네이티브에 가까운 성능
-- **검증된 조합**: kubeadm + Calico는 가장 보편적인 조합으로 트러블슈팅 자료가 풍부
-- **eBPF 전환 가능**: 필요 시 iptables → eBPF 데이터플레인 전환으로 kube-proxy 대체 가능 (설정 변경만으로 전환)
-
-### 4.4 결정: (팀 논의 필요)
-
-**선택지 A — Calico (안정성 우선)**
-현재 팀 역량과 운영 안정성을 우선시하는 경우. Service Mesh가 필요해지면 Istio를 추가 도입합니다.
-
-**선택지 B — Cilium (확장성 우선)**
-초기 학습 비용을 감수하고, CNI + Service Mesh + Observability를 단일 도구로 운영합니다.
-
-### 4.5 NetworkPolicy 운영 방침 (CNI 공통)
-
-어떤 CNI를 선택하든 아래 순서로 NetworkPolicy를 적용합니다.
-
-| 순서 | 정책 | 설명 |
-|------|------|------|
-| 1 | DNS 허용 | 모든 Pod → CoreDNS(kube-system) 통신 허용 |
-| 2 | 기본 Deny | namespace 단위 Ingress/Egress 기본 차단 |
-| 3 | 서비스별 허용 | 필요한 Pod 간 통신만 명시적으로 허용 |
-
-> **주의**: DNS 허용 정책을 먼저 적용하지 않으면 서비스 디스커버리가 차단되어 전체 통신 장애가 발생합니다.
-
-#### NetworkPolicy 예시: DB Pod 접근 제한
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: db-allow-backend-only
-  namespace: app
-spec:
-  podSelector:
-    matchLabels:
-      app: db
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: backend
-      ports:
-        - protocol: TCP
-          port: 5432
-```
-
-### 4.6 암호화 정책
-
-노드 간 Pod 트래픽은 기본적으로 평문 전송됩니다.
-Calico, Cilium 모두 WireGuard를 통해 필요 시 전송 구간 암호화를 선택적으로 활성화할 수 있습니다.
-기본적으로는 비활성화하여 성능을 확보하고, 민감한 데이터가 오가는 구간이 식별되면 활성화합니다.
 
 ## 5. 서비스 배포 전략
 
@@ -312,6 +217,7 @@ metadata:
   namespace: app
 spec:
   replicas: 2
+  progressDeadlineSeconds: 120  # 2분 내 배포 진행 없으면 실패 판정 (5.8 참조)
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -493,7 +399,75 @@ spec:
 | 리소스 | 용도 | 소스 |
 |--------|------|------|
 | ConfigMap | 환경 설정 (프로필, 외부 URL 등) | Git 관리 |
-| Secret | 민감 정보 (DB 비밀번호, API 키 등) | AWS SSM Parameter Store에서 주입 |
+| Secret | 민감 정보 (DB 비밀번호, API 키 등) | Sealed Secrets로 암호화하여 Git 관리 (7.5 참조) |
+
+### 5.8 배포 실패 시 자동 보호 및 롤백
+
+#### 5.8.1 자동 보호 메커니즘
+
+5.3의 `maxUnavailable: 0`과 5.4의 readinessProbe가 조합되어, 새 Pod가 Probe를 통과하지 못하면 배포가 자연스럽게 **중단(stall)** 됩니다.
+기존 Pod는 제거되지 않으므로 서비스에는 영향이 없습니다.
+
+여기에 `progressDeadlineSeconds: 120` (5.2 Deployment에 설정)을 더하면, 2분 내 배포가 진행되지 않을 경우 Deployment 상태가 자동으로 `Progressing=False`로 전환되고, ArgoCD가 Degraded 상태로 표시하여 운영자에게 알립니다.
+
+```
+[정상 배포 흐름]
+새 Pod 생성 → readinessProbe 통과 → Service에 등록 → 기존 Pod 제거 → 완료
+
+[실패 배포 흐름]
+새 Pod 생성 → readinessProbe 실패 반복 → Service에 등록되지 않음
+  → maxUnavailable=0이므로 기존 Pod 제거 안 됨 (서비스 영향 없음)
+  → progressDeadlineSeconds 초과 → Deployment 상태 "Progressing=False"
+  → ArgoCD가 Degraded 상태로 표시 → 운영자에게 알림
+```
+
+#### 5.8.2 실패 감지 후 조치
+
+배포가 `progressDeadlineSeconds`를 초과하여 실패 판정된 경우:
+
+```bash
+# 1. 배포 상태 확인 — "Progressing=False" 조건 확인
+$ kubectl rollout status deployment/spring-boot -n app
+# → "error: deployment "spring-boot" exceeded its progress deadline"
+
+# 2. 실패한 새 Pod의 로그 확인
+$ kubectl logs -l app=spring-boot -n app --tail=50
+
+# 3. 이벤트 확인 — readinessProbe 실패 원인 파악
+$ kubectl describe pod -l app=spring-boot -n app | grep -A5 "Events"
+
+# 4. 직전 버전으로 롤백
+$ kubectl rollout undo deployment/spring-boot -n app
+
+# 5. 롤백 완료 확인
+$ kubectl rollout status deployment/spring-boot -n app
+```
+
+> `kubectl rollout undo`는 긴급 대응용입니다. Git과 클러스터 상태가 불일치(OutOfSync)하므로, 이후 cloud-repo에서 `git revert`로 Git 상태를 동기화해야 합니다.
+
+#### 5.8.3 배포 보호 흐름 요약
+
+```
+[배포 시작]
+  → 새 Pod 생성
+  → readinessProbe 실행
+      ├─ 성공 → Service에 등록 → 트래픽 수신 → 기존 Pod 제거 → 배포 완료
+      └─ 실패 → Service에 미등록 → 트래픽 차단 → 기존 Pod 유지 (서비스 무영향)
+                  → progressDeadlineSeconds 초과 → 실패 판정
+                  → ArgoCD Degraded / 알림
+                  → 운영자 확인 후 rollout undo 또는 git revert
+
+[배포 완료 후]
+  → livenessProbe가 지속 감시
+      ├─ 정상 → Pod 유지
+      └─ 실패 (hang 등) → Pod 자동 재시작 → readinessProbe 재통과 후 트래픽 복귀
+```
+
+#### 5.8.4 자동 롤백을 도입하지 않는 이유
+
+- readinessProbe + `maxUnavailable: 0`이 이미 서비스를 보호하므로, 운영자가 판단할 시간이 충분
+- 배포 실패 원인이 코드가 아닌 일시적 외부 요인(DB 연결 지연, ConfigMap 누락 등)일 수 있어, 자동 revert는 불필요한 롤백을 유발할 수 있음
+- Argo Rollouts(Canary/Blue-Green 기반 메트릭 자동 롤백)는 현재 구성(Deployment + ArgoCD) 대비 오버스펙. 규모가 커져 Canary 배포가 필요해지면 도입 검토
 
 ---
 
@@ -575,38 +549,214 @@ spec:
 | 대상 | 관리 방식 | 이유 |
 |------|-----------|------|
 | 애플리케이션 (Spring, FastAPI) | 순수 YAML | 직접 작성하여 구조를 이해하고, 환경별 차이를 명확하게 관리 |
-| 외부 스택 (ALB Controller, ArgoCD) | Helm Chart | 복잡한 외부 도구를 안정적으로 설치·관리 |
+| 외부 스택 (ALB Controller, ArgoCD, Sealed Secrets) | Helm Chart | 복잡한 외부 도구를 안정적으로 설치·관리 |
 
-### 7.2 디렉토리 구조
+### 7.2 환경 격리 방식
 
-```
-manifests/
-  app/
-    base/                   # 공통 YAML
-      deployment.yaml
-      service.yaml
-      ingress.yaml
-      configmap.yaml
-      hpa.yaml
-    overlays/               # 환경별 오버라이드
-      dev/
-      stg/
-      prod/
-  helm/
-    values/
-      alb-controller.yaml
-      argocd.yaml
-```
+단일 클러스터 내에서 namespace로 환경을 분리합니다.
 
-### 7.3 ArgoCD
+| 환경 | Namespace | 용도 |
+|------|-----------|------|
+| dev | `app-dev` | 개발·기능 테스트 |
+| stg | `app-stg` | 통합 테스트·부하 테스트 |
+| prod | `app-prod` | 운영 |
 
-ArgoCD는 `app` namespace의 배포만 관리합니다.
-Git 저장소의 manifest가 변경되면 ArgoCD가 자동으로 감지하여 클러스터에 반영합니다.
+- NetworkPolicy로 namespace 간 트래픽을 차단하여 환경 간 간섭 방지
+- ResourceQuota로 dev/stg가 prod의 리소스를 침범하지 않도록 제한
+- 클러스터 분리나 AWS 계정 분리는 현재 규모 대비 비용/운영 부담이 과도하여 채택하지 않음
+
+### 7.3 디렉토리 구조
 
 ```
-개발자 코드 푸시 → GitHub Actions → Docker 이미지 빌드 → ECR 푸시
-→ manifest의 이미지 태그 업데이트 → ArgoCD 감지 → 클러스터 배포
+v3-k8s/
+  manifests/
+    app/
+      base/                   # 공통 YAML
+        deployment.yaml
+        service.yaml
+        ingress.yaml
+        configmap.yaml
+        hpa.yaml
+      overlays/               # 환경별 오버라이드 (Kustomize)
+        dev/
+          kustomization.yaml
+        stg/
+          kustomization.yaml
+        prod/
+          kustomization.yaml
+    helm/
+      values/
+        alb-controller.yaml
+        argocd.yaml
+        sealed-secrets.yaml
+  argocd/                     # ArgoCD Application 정의
+    app-dev.yaml
+    app-stg.yaml
+    app-prod.yaml
 ```
+
+- `base/`: 모든 환경에 공통인 리소스 정의
+- `overlays/`: 환경별로 replicas, 이미지 태그, 리소스 제한 등을 Kustomize patch로 오버라이드
+- `argocd/`: ArgoCD가 각 환경을 바라보는 Application CR 정의
+
+### 7.4 ArgoCD
+
+#### 7.4.1 GitOps 배포 방식
+
+ArgoCD는 Pull 기반 GitOps 도구입니다.
+CI 파이프라인이 클러스터에 직접 배포하는 Push 방식과 달리, ArgoCD가 Git 저장소를 주기적으로 감시하여 변경을 감지하고 클러스터에 반영합니다.
+
+```
+[Push 방식 (기존)]
+개발자 → git push → CI → kubectl apply (CI가 클러스터 접근 권한 필요)
+
+[Pull 방식 (ArgoCD)]
+개발자 → git push → CI → 이미지 빌드/푸시 → manifest 이미지 태그 업데이트
+                                              ↓
+                              ArgoCD가 Git 변경 감지 → 클러스터에 반영
+```
+
+Pull 방식의 이점:
+- CI 파이프라인에 클러스터 접근 권한(kubeconfig)을 부여하지 않아도 됨
+- Git이 단일 진실 공급원(Single Source of Truth)이 되어, 클러스터 상태가 항상 Git과 일치
+- 누가, 언제, 무엇을 배포했는지 Git 커밋 히스토리로 추적 가능
+
+#### 7.4.2 멀티 레포 전략
+
+애플리케이션 코드와 K8s manifest를 별도 레포에서 관리합니다.
+
+| 레포 | 역할 | 관리 주체 |
+|------|------|-----------|
+| frontend-repo | React 소스 코드 + CI | 프론트엔드 개발자 |
+| backend-repo | Spring Boot 소스 코드 + CI | 백엔드 개발자 |
+| ai-repo | FastAPI 소스 코드 + CI | AI 개발자 |
+| cloud-repo | K8s manifest + ArgoCD Application + 인프라 코드 | 클라우드 담당 |
+
+- 개발자는 코드만 푸시하면 되고, K8s manifest를 알 필요 없음
+- manifest 변경(포트, 환경변수, 리소스 등)은 클라우드 담당자가 cloud-repo에서 관리
+- ArgoCD는 cloud-repo만 감시
+
+**한계:**
+- 각 서비스 CI에서 cloud-repo에 cross-repo commit이 필요 (GitHub App 토큰 관리)
+- 동시 빌드 시 같은 파일을 수정하면 push 충돌 가능 → 서비스별 이미지 태그 파일 분리로 대응
+- 배포 추적 시 이미지 태그(SHA) → 원본 레포 커밋을 역추적해야 함
+
+#### 7.4.3 배포 파이프라인
+
+```
+[backend-repo CI]
+1. 개발자 코드 푸시 (backend-repo)
+2. GitHub Actions → Docker 이미지 빌드 → ECR 푸시 (태그: git SHA)
+3. GitHub Actions → cloud-repo의 manifest 이미지 태그를 새 SHA로 업데이트 (cross-repo commit)
+
+[ai-repo CI]
+1. 개발자 코드 푸시 (ai-repo)
+2. GitHub Actions → Docker 이미지 빌드 → ECR 푸시 (태그: git SHA)
+3. GitHub Actions → cloud-repo의 manifest 이미지 태그를 새 SHA로 업데이트 (cross-repo commit)
+
+[frontend-repo CI]
+1. 개발자 코드 푸시 (frontend-repo)
+2. GitHub Actions → 정적 파일 빌드 → S3 + CloudFront 배포
+3. (K8s 배포 불필요 - CDN을 통해 직접 서빙)
+
+[ArgoCD]
+4. cloud-repo의 manifest 변경 감지 → 환경별 정책에 따라 클러스터 동기화
+```
+
+cross-repo commit은 `github-actions[bot]` 계정으로 수행되며, 커밋 메시지에 원본 레포의 커밋 SHA를 포함하여 추적성을 확보합니다.
+
+#### 7.4.4 환경별 동기화 정책
+
+| 환경 | 동기화 방식 | 이유 |
+|------|------------|------|
+| dev | **자동 동기화** (Auto Sync) | 매일 수회 배포, 빠른 피드백 필요 |
+| stg | **수동 동기화** (Manual Sync) | 부하 테스트 등 진행 중 의도치 않은 배포 방지 |
+| prod | **수동 동기화** (Manual Sync) | 클라우드 담당자가 ArgoCD UI에서 명시적으로 Sync 버튼 클릭 |
+
+- dev: Git에 manifest가 반영되면 ArgoCD가 즉시 클러스터에 동기화
+- stg/prod: Git에 manifest가 반영되어도 ArgoCD는 "OutOfSync" 상태만 표시. 클라우드 담당 2인 중 1인이 확인 후 수동으로 Sync 실행
+
+#### 7.4.5 ArgoCD Application 예시 (prod)
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tasteam-prod
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/100-hours-a-week/3-team-Tasteam-cloud.git
+    targetRevision: main
+    path: v3-k8s/manifests/app/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app
+  syncPolicy:
+    # prod는 자동 동기화 비활성화 (수동 승인)
+    automated: null
+```
+
+dev Application에서는 `syncPolicy`에 아래를 추가합니다:
+
+```yaml
+  syncPolicy:
+    automated:
+      prune: true       # Git에서 삭제된 리소스를 클러스터에서도 삭제
+      selfHeal: true     # 수동 변경(kubectl edit 등)을 Git 상태로 자동 되돌림
+```
+
+### 7.5 Secret 관리
+
+#### 7.5.1 문제
+
+GitOps에서는 모든 리소스를 Git에 저장하는 것이 원칙이지만, Secret(DB 비밀번호, API 키 등)은 평문으로 Git에 커밋할 수 없습니다.
+
+#### 7.5.2 방식: Sealed Secrets
+
+Sealed Secrets(Bitnami)를 사용하여 Secret을 암호화된 형태로 Git에 저장합니다.
+
+```
+[암호화 흐름]
+1. 클러스터에 Sealed Secrets Controller 설치 (복호화 키 보유)
+2. 로컬에서 kubeseal CLI로 Secret을 암호화 → SealedSecret 리소스 생성
+3. SealedSecret을 Git에 커밋 (암호화된 상태이므로 안전)
+4. ArgoCD가 SealedSecret을 클러스터에 배포
+5. Sealed Secrets Controller가 복호화 → 실제 Secret 리소스 생성
+```
+
+```bash
+# 암호화 예시
+kubectl create secret generic db-credentials \
+  --from-literal=password=my-secret-pw \
+  --dry-run=client -o yaml | \
+  kubeseal --format yaml > sealed-db-credentials.yaml
+```
+
+```yaml
+# sealed-db-credentials.yaml (Git에 커밋 가능)
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: db-credentials
+  namespace: app
+spec:
+  encryptedData:
+    password: AgBy3i4OJSWK+PiTySYZZA9rO...  # 암호화된 값
+```
+
+#### 7.5.3 Sealed Secrets 선택 이유
+
+| 방식 | 장점 | 단점 | 판정 |
+|------|------|------|------|
+| AWS SSM + ExternalSecrets | AWS 네이티브, Secret 중앙 관리 | ExternalSecrets Operator 추가 설치, AWS IAM 연동 필요 | 후보 |
+| HashiCorp Vault | 강력한 접근 제어, 동적 시크릿 | 별도 Vault 클러스터 운영 필요, 과도한 복잡도 | 제외 |
+| **Sealed Secrets** | **Git 단일 관리, 추가 인프라 불필요, 단순함** | **Secret 갱신 시 재암호화 필요** | **선택** |
+
+- 현재 팀 규모(6인, 클라우드 2인)에서 Vault는 운영 부담이 과도함
+- Sealed Secrets는 Git에 모든 것을 저장한다는 GitOps 원칙과 가장 잘 부합
+- Secret 갱신이 빈번하지 않으므로 재암호화 비용이 낮음
 
 ---
 
@@ -807,6 +957,9 @@ kubeadm join <NLB_DNS>:6443 \
   → 위 과정을 replica 수만큼 반복
   → WebSocket 사용자: terminationGracePeriodSeconds(60초) 동안 기존 연결 유지 후 종료
   → 전체 과정에서 가용 Pod 수가 줄어들지 않음
+
+배포 실패 시:
+  → readinessProbe 실패 → 기존 Pod 유지 → 서비스 무영향 (상세: 5.8 참조)
 ```
 
 ### 11.4 마스터 노드 장애
@@ -824,3 +977,4 @@ kubeadm join <NLB_DNS>:6443 \
   → 새 배포, 스케일링, Pod 재스케줄링 불가
   → etcd 스냅샷으로 복구
 ```
+
