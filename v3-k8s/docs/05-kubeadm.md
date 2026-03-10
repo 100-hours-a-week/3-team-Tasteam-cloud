@@ -843,73 +843,6 @@ spec:
 현재 규모에서는 HPA만으로 피크 대응이 가능하며, 노드 자동 확장은 비용 대비 효과가 낮다고 판단했습니다.
 규모가 커져 워커 4대로 부족해지는 시점에 Cluster Autoscaler 또는 Karpenter 도입을 검토합니다.
 
-### 6.1 HPA (Horizontal Pod Autoscaler)
-
-피크 시간대 트래픽 급증에 Pod 단위로 자동 대응합니다.
-
-#### Spring Boot HPA
-
-```yaml
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: spring-boot-hpa
-  namespace: app
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: spring-boot
-  minReplicas: 2
-  maxReplicas: 4
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70
-```
-
-#### FastAPI HPA
-
-```yaml
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: fastapi-hpa
-  namespace: app
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: fastapi
-  minReplicas: 1
-  maxReplicas: 2
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70
-```
-
-### 6.2 커스텀 메트릭 확장 (추후)
-
-현재는 CPU 기반으로 시작하고, 운영 데이터가 쌓이면 Prometheus Adapter를 통해 커스텀 메트릭 기반 스케일링을 도입합니다.
-
-| 단계 | 메트릭 | 도구 |
-|------|--------|------|
-| 1단계 (초기) | CPU Utilization | HPA 기본 |
-| 2단계 (운영 후) | 요청 수, 응답 지연, WebSocket 연결 수 | Prometheus Adapter + HPA custom metrics |
-
-### 6.3 Cluster Autoscaler는 도입하지 않음
-
-워커 노드 4대를 고정 운영하고, Pod 레벨에서만 스케일링합니다.
-현재 규모에서는 HPA만으로 피크 대응이 가능하며, 노드 자동 확장은 비용 대비 효과가 낮다고 판단했습니다.
-규모가 커져 워커 4대로 부족해지는 시점에 Cluster Autoscaler 또는 Karpenter 도입을 검토합니다.
-
 ---
 
 ## 7. 배포 고도화 (Helm, ArgoCD)
@@ -1183,58 +1116,6 @@ ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-snapshot.db \
 
 백업 주기와 저장 위치(S3 등)는 운영 단계에서 결정합니다.
 
-### 8.1 Pod 레벨
-
-| 장애 유형 | 대응 | 설정 |
-|-----------|------|------|
-| 컨테이너 crash | 자동 재시작 | `restartPolicy: Always` (Deployment 기본값) |
-| 프로세스 hang | liveness probe 실패 → 재시작 | `livenessProbe` (5.4 참조) |
-| 배포 중 트래픽 유입 | readiness probe 통과 전 트래픽 제외 | `readinessProbe` (5.4 참조) |
-
-### 8.2 WebSocket 연결 보호
-
-```yaml
-# Pod 종료 시 기존 연결을 정리할 시간 확보
-terminationGracePeriodSeconds: 60
----
-# 동시에 내려갈 수 있는 Pod 수 제한
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: spring-boot-pdb
-  namespace: app
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: spring-boot
-```
-
-배포나 노드 유지보수 시에도 최소 1개의 Spring Boot Pod가 항상 유지되어 WebSocket 연결이 전부 끊어지는 상황을 방지합니다.
-
-### 8.3 노드 레벨
-
-| 장애 유형 | K8s 자동 대응 |
-|-----------|--------------|
-| 워커 노드 1대 장애 | 해당 노드의 Pod를 다른 노드로 자동 재스케줄링 (N+1 설계로 수용 가능) |
-| 마스터 노드 1대 장애 | etcd 쿼럼 유지 (3대 중 2대 생존), API Server는 NLB가 정상 노드로 라우팅 |
-| 마스터 노드 2대 장애 | etcd 쿼럼 상실 → 컨트롤플레인 중단 (기존 Pod는 계속 동작, 새 배포/스케일링 불가) |
-
-### 8.4 etcd 백업
-
-마스터 노드 전체 장애에 대비하여 etcd를 정기적으로 백업합니다.
-
-```bash
-# etcd 스냅샷 백업
-ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-snapshot.db \
-  --endpoints=https://127.0.0.1:2379 \
-  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
-  --cert=/etc/kubernetes/pki/etcd/server.crt \
-  --key=/etc/kubernetes/pki/etcd/server.key
-```
-
-백업 주기와 저장 위치(S3 등)는 운영 단계에서 결정합니다.
-
 ---
 
 ## 9. 클러스터 구성도
@@ -1404,4 +1285,3 @@ AZ 2a 전체 장애 (워커 2대 손실, 가장 큰 영향)
   → ALB idle_timeout, NGINX proxy-read-timeout 모두 heartbeat 주기보다 길게 설정
   → 채팅방이 조용해도 ping/pong heartbeat로 연결 유지
 ```
-
