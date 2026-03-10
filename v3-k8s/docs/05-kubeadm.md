@@ -411,6 +411,17 @@ spec:
 readinessProbe는 배포 직후 애플리케이션이 초기화되는 동안 트래픽이 유입되는 것을 방지합니다.
 livenessProbe는 프로세스가 살아있지만 응답 불가(hang)인 상태를 감지하여 자동으로 재시작합니다.
 
+#### 서비스별 Probe 설정
+
+| 서비스 | Probe | 엔드포인트 | initialDelay | period | failureThreshold | 설정 이유 |
+|--------|-------|-----------|-------------|--------|-----------------|-----------|
+| Spring Boot | readiness | `GET /actuator/health:8080` | 30초 | 10초 | 3 | Spring 초기화(Bean, DB 커넥션 풀)에 시간 필요 |
+| Spring Boot | liveness | `GET /actuator/health:8080` | 60초 | 15초 | 3 | 초기화 완료 후 시작, hang 감지 |
+| FastAPI | readiness | `GET /health:8000` | 10초 | 10초 | 3 | Python 기동이 빠름 |
+| FastAPI | liveness | `GET /health:8000` | 15초 | 15초 | 3 | AI 모델 로딩 후 시작 |
+
+> Spring Boot의 `initialDelaySeconds`가 FastAPI보다 긴 이유는 Spring 컨텍스트 초기화(Bean 스캔, DB 커넥션 풀 생성 등)에 더 많은 시간이 걸리기 때문입니다. 실제 기동 시간은 클러스터 구성 후 측정하여 조정합니다.
+
 ### 5.5 Service 구성
 
 ```yaml
