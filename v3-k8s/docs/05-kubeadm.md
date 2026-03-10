@@ -292,14 +292,524 @@ Calico, Cilium 모두 WireGuard를 통해 필요 시 전송 구간 암호화를 
 
 ## 5. 서비스 배포 전략
 
+### 5.1 Namespace 구성
+
+| Namespace | 용도 | 포함 리소스 |
+|-----------|------|------------|
+| `app` | 애플리케이션 서비스 | Spring Boot, FastAPI, Service, Ingress, ConfigMap, Secret |
+| `monitoring` | 모니터링 스택 (별도 단계) | Prometheus, Grafana, Loki |
+| `argocd` | GitOps 배포 관리 | ArgoCD server, repo-server, controller |
+
+### 5.2 Deployment 구성
+
+#### Spring Boot (API + WebSocket)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-boot
+  namespace: app
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    spec:
+      containers:
+        - name: spring-boot
+          image: <ECR_URI>/spring-boot:latest
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 3
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              valueFrom:
+                configMapKeyRef:
+                  name: spring-config
+                  key: profile
+```
+
+#### FastAPI (AI)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi
+  namespace: app
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    spec:
+      containers:
+        - name: fastapi
+          image: <ECR_URI>/fastapi:latest
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+```
+
+### 5.3 배포 전략: Rolling Update
+
+`maxSurge: 1, maxUnavailable: 0` 설정으로, 새 Pod가 Ready 상태가 된 후에야 기존 Pod를 제거합니다.
+이를 통해 배포 중에도 가용 Pod 수가 줄어들지 않으며, 피크 시간대에도 안전하게 배포할 수 있습니다.
+
+### 5.4 Probe 설계
+
+| Probe | 역할 | 실패 시 동작 |
+|-------|------|-------------|
+| readinessProbe | 트래픽을 받을 준비가 되었는지 확인 | Service에서 해당 Pod로의 트래픽 제외 |
+| livenessProbe | 프로세스가 정상 동작하는지 확인 | Pod 재시작 |
+
+readinessProbe는 배포 직후 애플리케이션이 초기화되는 동안 트래픽이 유입되는 것을 방지합니다.
+livenessProbe는 프로세스가 살아있지만 응답 불가(hang)인 상태를 감지하여 자동으로 재시작합니다.
+
+### 5.5 Service 구성
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-svc
+  namespace: app
+spec:
+  type: ClusterIP
+  selector:
+    app: spring-boot
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastapi-svc
+  namespace: app
+spec:
+  type: ClusterIP
+  selector:
+    app: fastapi
+  ports:
+    - port: 80
+      targetPort: 8000
+```
+
+### 5.6 Ingress (ALB)
+
+Caddy를 제거하고 ALB + AWS Load Balancer Controller로 외부 트래픽을 라우팅합니다.
+정적 파일은 S3 + CloudFront(CDN)로 분리하고, ALB는 API 트래픽만 처리합니다.
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-ingress
+  namespace: app
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  rules:
+    - host: api.tasteam.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: spring-svc
+                port:
+                  number: 80
+          - path: /ai
+            pathType: Prefix
+            backend:
+              service:
+                name: fastapi-svc
+                port:
+                  number: 80
+```
+
+### 5.7 설정 관리
+
+| 리소스 | 용도 | 소스 |
+|--------|------|------|
+| ConfigMap | 환경 설정 (프로필, 외부 URL 등) | Git 관리 |
+| Secret | 민감 정보 (DB 비밀번호, API 키 등) | AWS SSM Parameter Store에서 주입 |
+
+---
+
 ## 6. 스케일링 전략
+
+### 6.1 HPA (Horizontal Pod Autoscaler)
+
+피크 시간대 트래픽 급증에 Pod 단위로 자동 대응합니다.
+
+#### Spring Boot HPA
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: spring-boot-hpa
+  namespace: app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: spring-boot
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+```
+
+#### FastAPI HPA
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fastapi-hpa
+  namespace: app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fastapi
+  minReplicas: 1
+  maxReplicas: 2
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+```
+
+### 6.2 커스텀 메트릭 확장 (추후)
+
+현재는 CPU 기반으로 시작하고, 운영 데이터가 쌓이면 Prometheus Adapter를 통해 커스텀 메트릭 기반 스케일링을 도입합니다.
+
+| 단계 | 메트릭 | 도구 |
+|------|--------|------|
+| 1단계 (초기) | CPU Utilization | HPA 기본 |
+| 2단계 (운영 후) | 요청 수, 응답 지연, WebSocket 연결 수 | Prometheus Adapter + HPA custom metrics |
+
+### 6.3 Cluster Autoscaler는 도입하지 않음
+
+워커 노드 4대를 고정 운영하고, Pod 레벨에서만 스케일링합니다.
+현재 규모에서는 HPA만으로 피크 대응이 가능하며, 노드 자동 확장은 비용 대비 효과가 낮다고 판단했습니다.
+규모가 커져 워커 4대로 부족해지는 시점에 Cluster Autoscaler 또는 Karpenter 도입을 검토합니다.
+
+---
 
 ## 7. 배포 고도화 (Helm, ArgoCD)
 
+### 7.1 Manifest 관리 방식
+
+| 대상 | 관리 방식 | 이유 |
+|------|-----------|------|
+| 애플리케이션 (Spring, FastAPI) | 순수 YAML | 직접 작성하여 구조를 이해하고, 환경별 차이를 명확하게 관리 |
+| 외부 스택 (ALB Controller, ArgoCD) | Helm Chart | 복잡한 외부 도구를 안정적으로 설치·관리 |
+
+### 7.2 디렉토리 구조
+
+```
+manifests/
+  app/
+    base/                   # 공통 YAML
+      deployment.yaml
+      service.yaml
+      ingress.yaml
+      configmap.yaml
+      hpa.yaml
+    overlays/               # 환경별 오버라이드
+      dev/
+      stg/
+      prod/
+  helm/
+    values/
+      alb-controller.yaml
+      argocd.yaml
+```
+
+### 7.3 ArgoCD
+
+ArgoCD는 `app` namespace의 배포만 관리합니다.
+Git 저장소의 manifest가 변경되면 ArgoCD가 자동으로 감지하여 클러스터에 반영합니다.
+
+```
+개발자 코드 푸시 → GitHub Actions → Docker 이미지 빌드 → ECR 푸시
+→ manifest의 이미지 태그 업데이트 → ArgoCD 감지 → 클러스터 배포
+```
+
+---
+
 ## 8. 장애 대응 및 자동 복구
+
+### 8.1 Pod 레벨
+
+| 장애 유형 | 대응 | 설정 |
+|-----------|------|------|
+| 컨테이너 crash | 자동 재시작 | `restartPolicy: Always` (Deployment 기본값) |
+| 프로세스 hang | liveness probe 실패 → 재시작 | `livenessProbe` (5.4 참조) |
+| 배포 중 트래픽 유입 | readiness probe 통과 전 트래픽 제외 | `readinessProbe` (5.4 참조) |
+
+### 8.2 WebSocket 연결 보호
+
+```yaml
+# Pod 종료 시 기존 연결을 정리할 시간 확보
+terminationGracePeriodSeconds: 60
+---
+# 동시에 내려갈 수 있는 Pod 수 제한
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: spring-boot-pdb
+  namespace: app
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: spring-boot
+```
+
+배포나 노드 유지보수 시에도 최소 1개의 Spring Boot Pod가 항상 유지되어 WebSocket 연결이 전부 끊어지는 상황을 방지합니다.
+
+### 8.3 노드 레벨
+
+| 장애 유형 | K8s 자동 대응 |
+|-----------|--------------|
+| 워커 노드 1대 장애 | 해당 노드의 Pod를 다른 노드로 자동 재스케줄링 (N+1 설계로 수용 가능) |
+| 마스터 노드 1대 장애 | etcd 쿼럼 유지 (3대 중 2대 생존), API Server는 NLB가 정상 노드로 라우팅 |
+| 마스터 노드 2대 장애 | etcd 쿼럼 상실 → 컨트롤플레인 중단 (기존 Pod는 계속 동작, 새 배포/스케일링 불가) |
+
+### 8.4 etcd 백업
+
+마스터 노드 전체 장애에 대비하여 etcd를 정기적으로 백업합니다.
+
+```bash
+# etcd 스냅샷 백업
+ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-snapshot.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+```
+
+백업 주기와 저장 위치(S3 등)는 운영 단계에서 결정합니다.
+
+---
 
 ## 9. 클러스터 구성도
 
+```
+                         ┌──────────────────┐
+                         │    Cloudflare     │
+                         └────────┬─────────┘
+                                  │
+                    ┌─────────────┴─────────────┐
+                    │                           │
+            ┌───────▼───────┐          ┌────────▼────────┐
+            │  CloudFront   │          │   ALB (public)  │
+            │  + S3 (정적)  │          │   /api, /ai     │
+            └───────────────┘          └────────┬────────┘
+                                                │
+                              ┌─────────────────┼─────────────────┐
+                              │         K8s Cluster               │
+                              │                                   │
+                              │  ┌─── Master (HA, 3대) ────────┐ │
+                              │  │ etcd, apiserver, scheduler,  │ │
+                              │  │ controller-manager           │ │
+                              │  │         ↕ NLB               │ │
+                              │  └──────────────────────────────┘ │
+                              │                                   │
+                              │  ┌─── Worker (4대, 2AZ) ───────┐ │
+                              │  │                              │ │
+                              │  │  ┌─────────┐ ┌───────────┐  │ │
+                              │  │  │ Spring  │ │  FastAPI   │  │ │
+                              │  │  │ Boot    │ │  (AI)      │  │ │
+                              │  │  │ ×2~4    │ │  ×1~2      │  │ │
+                              │  │  └────┬────┘ └─────┬─────┘  │ │
+                              │  │       │            │         │ │
+                              │  │  spring-svc    fastapi-svc   │ │
+                              │  │  (ClusterIP)   (ClusterIP)   │ │
+                              │  │                              │ │
+                              │  │  ┌───────────┐              │ │
+                              │  │  │  ArgoCD   │              │ │
+                              │  │  │  ×1       │              │ │
+                              │  │  └───────────┘              │ │
+                              │  └──────────────────────────────┘ │
+                              │                                   │
+                              └───────────┬───────────────────────┘
+                                          │
+                              ┌───────────▼───────────┐
+                              │  External Services    │
+                              │  - RDS (PostgreSQL)   │
+                              │  - EC2 Redis          │
+                              └───────────────────────┘
+```
+
+### 트래픽 흐름
+
+```
+정적 파일:  User → Cloudflare → CloudFront → S3
+API 요청:   User → Cloudflare → ALB → Ingress → spring-svc → Spring Pods
+AI 요청:    User → Cloudflare → ALB → Ingress → fastapi-svc → FastAPI Pods
+내부 통신:  Spring Pods → fastapi-svc (ClusterIP, DNS)
+DB 접근:    Spring Pods → RDS (외부, Private Subnet)
+```
+
+---
+
 ## 10. 설정 명세
 
+### 10.1 kubeadm 초기화
+
+```bash
+# 첫 번째 마스터 노드
+kubeadm init \
+  --control-plane-endpoint "<NLB_DNS>:6443" \
+  --upload-certs \
+  --pod-network-cidr=10.244.0.0/16
+
+# 추가 마스터 노드 (2, 3번)
+kubeadm join <NLB_DNS>:6443 \
+  --token <TOKEN> \
+  --discovery-token-ca-cert-hash sha256:<HASH> \
+  --control-plane \
+  --certificate-key <CERT_KEY>
+
+# 워커 노드
+kubeadm join <NLB_DNS>:6443 \
+  --token <TOKEN> \
+  --discovery-token-ca-cert-hash sha256:<HASH>
+```
+
+### 10.2 주요 파라미터
+
+| 항목 | 값 |
+|------|-----|
+| Kubernetes 버전 | v1.34.x |
+| Pod CIDR | 10.244.0.0/16 |
+| Service CIDR | 10.96.0.0/12 (기본값) |
+| API Server 엔드포인트 | NLB DNS:6443 |
+| 컨테이너 런타임 | containerd |
+
+### 10.3 서비스별 명세
+
+| 서비스 | 이미지 | 포트 | replicas (평시) | replicas (피크) | CPU req/limit | Memory req/limit |
+|--------|--------|------|----------------|----------------|---------------|-----------------|
+| Spring Boot | ECR/spring-boot | 8080 | 2 | 4 | 500m / 1000m | 1Gi / 2Gi |
+| FastAPI | ECR/fastapi | 8000 | 1 | 2 | 500m / 1000m | 512Mi / 1Gi |
+| ArgoCD | argoproj/argocd | 8080 | 1 | 1 | 200m / 500m | 256Mi / 512Mi |
+
+---
+
 ## 11. 운영 시나리오
+
+### 11.1 피크 시간대 자동 확장
+
+```
+12:00 점심 피크 시작
+  → Spring Boot CPU 사용률 70% 초과
+  → HPA가 감지 → replicas 2 → 3 → 4 (수십 초 이내)
+  → 새 Pod가 readinessProbe 통과 후 트래픽 수신 시작
+
+13:30 피크 종료
+  → CPU 사용률 하락
+  → HPA cooldown 후 replicas 4 → 3 → 2 (점진적 축소)
+```
+
+### 11.2 워커 노드 장애
+
+```
+워커 노드 1대 (2a) 장애 발생
+  → 해당 노드의 Pod가 NotReady 상태
+  → K8s controller가 5분 내 다른 노드로 Pod 재스케줄링
+  → 남은 3대(2a×1, 2c×2)로 피크 트래픽 수용 가능 (N+1 설계)
+  → 장애 노드 복구 후 Pod가 자동으로 재분배
+```
+
+### 11.3 롤링 배포
+
+```
+새 버전 배포 시작
+  → ArgoCD가 Git의 이미지 태그 변경 감지
+  → maxSurge=1: 새 Pod 1개 생성
+  → 새 Pod의 readinessProbe 통과 확인
+  → maxUnavailable=0: 기존 Pod 1개 제거
+  → 위 과정을 replica 수만큼 반복
+  → WebSocket 사용자: terminationGracePeriodSeconds(60초) 동안 기존 연결 유지 후 종료
+  → 전체 과정에서 가용 Pod 수가 줄어들지 않음
+```
+
+### 11.4 마스터 노드 장애
+
+```
+마스터 1대 장애
+  → etcd 쿼럼 유지 (2/3 생존)
+  → NLB가 정상 API Server로 라우팅
+  → kubectl, HPA, 배포 모두 정상 동작
+  → 장애 노드 복구 후 etcd 자동 동기화
+
+마스터 2대 장애 (극단적 상황)
+  → etcd 쿼럼 상실 → 컨트롤플레인 중단
+  → 기존 Pod는 계속 동작 (서비스 유지)
+  → 새 배포, 스케일링, Pod 재스케줄링 불가
+  → etcd 스냅샷으로 복구
+```
