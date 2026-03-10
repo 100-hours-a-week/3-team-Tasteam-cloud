@@ -837,11 +837,30 @@ spec:
 | 1단계 (1주차 - 초기) | CPU Utilization | HPA 기본 |
 | 2단계 (2주차 - 운영) | 요청 수, 응답 지연, WebSocket 연결 수 | Prometheus Adapter + HPA custom metrics |
 
-### 6.3 Cluster Autoscaler는 도입하지 않음
+### 6.3 클러스터 오토스케일링
 
-워커 노드 4대를 고정 운영하고, Pod 레벨에서만 스케일링합니다.
-현재 규모에서는 HPA만으로 피크 대응이 가능하며, 노드 자동 확장은 비용 대비 효과가 낮다고 판단했습니다.
-규모가 커져 워커 4대로 부족해지는 시점에 Cluster Autoscaler 또는 Karpenter 도입을 검토합니다.
+HPA가 Pod를 늘려도 노드에 allocatable 리소스가 남아있지 않으면 Pod는 Pending 상태에 머뭅니다.
+피크 시간대에 노드 리소스가 소진되는 상황에 자동 대응하기 위해 Cluster Autoscaler를 도입합니다.
+
+#### 6.3.1 도구 선택: Cluster Autoscaler
+
+Karpenter는 ASG 없이 EC2를 직접 프로비저닝하며, Pod request에 맞는 인스턴스 타입을 실시간으로 선택하고 Spot 활용·노드 통합까지 자동화하는 점에서 대규모 환경에 유리합니다.
+다만 노드 라이프사이클 관리가 EKS의 IAM 기반 인증(`aws-auth`)을 전제로 설계되어 있어, kubeadm 환경에서는 노드 등록·추적·삭제 과정에서 별도 커스텀 작업이 필요합니다.
+
+Cluster Autoscaler는 ASG의 `DesiredCapacity`만 조절하고, 인스턴스 부팅과 join은 Launch Template의 UserData(`kubeadm join`)에 위임하므로 kubeadm과 자연스럽게 결합됩니다.
+
+#### 6.3.2 운영 전략
+
+| 항목 | 설정 |
+|------|------|
+| ASG 범위 | min: 4 / max: 6 (워커 노드) |
+| 스케일업 트리거 | Pending Pod 발생 시 |
+| 스케일다운 조건 | 노드 사용률 50% 미만이 10분 이상 지속 |
+| 스케일다운 보호 | PDB 준수, `terminationGracePeriodSeconds` 대기 후 drain |
+
+- **스케일업**: HPA가 Pod를 늘려 Pending이 발생하면, Cluster Autoscaler가 ASG DesiredCapacity를 증가시켜 새 노드를 투입
+- **스케일다운**: 피크 이후 Pod가 축소되어 노드 사용률이 낮아지면, 해당 노드의 Pod를 drain한 뒤 노드를 제거. PDB를 준수하므로 WebSocket 연결이 보호됨
+- **Join 자동화**: Launch Template UserData에 `kubeadm join` 스크립트를 포함하여 새 노드가 부팅 시 자동으로 클러스터에 합류
 
 ---
 
