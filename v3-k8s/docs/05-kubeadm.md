@@ -682,4 +682,97 @@ DB 접근:    Spring Pods → RDS (외부, Private Subnet)
 
 ## 10. 설정 명세
 
+
 ## 11. 운영 시나리오
+
+### 11.1 피크 시간대 자동 확장
+
+```
+12:00 점심 피크 시작
+  → Spring Boot CPU 사용률 70% 초과
+  → HPA가 감지 → replicas 2 → 3 → 4 (수십 초 이내)
+  → 새 Pod에 Linkerd sidecar 자동 주입 → mTLS 즉시 적용
+  → readinessProbe 통과 후 NGINX Ingress가 트래픽 분산 시작
+
+13:30 피크 종료
+  → CPU 사용률 하락
+  → HPA cooldown 후 replicas 4 → 3 → 2 (점진적 축소)
+  → 축소 대상 Pod: terminationGracePeriodSeconds(60초) 동안 기존 WebSocket 연결 유지 후 종료
+```
+
+### 11.2 워커 노드 장애
+
+```
+워커 노드 1대 (2a) 장애 발생
+  → 해당 노드의 Pod가 NotReady 상태
+  → NGINX Ingress가 NotReady Pod로의 트래픽 즉시 차단
+  → K8s controller가 5분 내 다른 노드로 Pod 재스케줄링
+  → 남은 3대(2a×1, 2b×1, 2c×1)로 피크 트래픽 수용 가능 (N+1 설계)
+  → 재스케줄링된 Pod에 Linkerd sidecar 자동 주입, mTLS 정상 동작
+  → 장애 노드 복구 후 Pod가 자동으로 재분배
+```
+
+### 11.3 AZ 장애
+
+```
+AZ 2b 전체 장애
+  → 마스터 1대 + 워커 1대 손실
+  → 마스터: 2대 생존 (2a, 2c) → etcd 쿼럼 유지, 컨트롤플레인 정상
+  → 워커: 3대 생존 (2a×2, 2c×1) → 피크 트래픽 수용 가능
+  → NLB가 정상 API Server로 라우팅, ALB가 정상 워커로 트래픽 분산
+  → HPA, 배포, 스케일링 모두 정상 동작
+
+AZ 2a 전체 장애 (워커 2대 손실, 가장 큰 영향)
+  → 마스터: 2대 생존 (2b, 2c) → etcd 쿼럼 유지
+  → 워커: 2대 생존 (2b×1, 2c×1) → allocatable CPU 2,500m
+  → 피크 시 필요 CPU 3,200m → 부족 발생
+  → 평시 트래픽은 수용 가능, 피크 시 일부 Pod 스케줄링 불가
+  → 장애 복구 또는 다른 AZ에 워커 추가 투입으로 대응
+```
+
+### 11.4 롤링 배포
+
+```
+새 버전 배포 시작
+  → ArgoCD가 Git의 이미지 태그 변경 감지
+  → maxSurge=1: 새 Pod 1개 생성 (Linkerd sidecar 자동 주입)
+  → 새 Pod의 readinessProbe 통과 확인
+  → NGINX Ingress가 새 Pod로 트래픽 분산 시작
+  → maxUnavailable=0: 기존 Pod 1개 제거 시작
+  → PodDisruptionBudget: Spring Boot Pod 최소 1개 유지 보장
+  → 제거 대상 Pod: terminationGracePeriodSeconds(60초) 동안 기존 WebSocket 연결 유지
+  → NGINX Ingress의 /ws timeout(3600s) 덕분에 배포 중 유휴 WebSocket 연결도 유지
+  → 위 과정을 replica 수만큼 반복
+  → 전체 과정에서 가용 Pod 수가 줄어들지 않음
+```
+
+### 11.5 마스터 노드 장애
+
+```
+마스터 1대 장애 (어느 AZ든 동일)
+  → etcd 쿼럼 유지 (2/3 생존)
+  → NLB가 정상 API Server로 라우팅
+  → kubectl, HPA, 배포 모두 정상 동작
+  → 장애 노드 복구 후 etcd 자동 동기화
+
+마스터 2대 장애 (극단적 상황)
+  → etcd 쿼럼 상실 → 컨트롤플레인 중단
+  → 기존 Pod는 계속 동작 (서비스 유지)
+  → Linkerd sidecar도 기존 상태로 동작 (mTLS 유지)
+  → NGINX Ingress 라우팅 유지 (기존 규칙 기반)
+  → 새 배포, 스케일링, Pod 재스케줄링 불가
+  → etcd 스냅샷으로 복구
+```
+
+### 11.6 WebSocket 채팅 피크 시나리오
+
+```
+18:00 저녁 피크 — 채팅 동시 접속 급증
+  → WebSocket 연결 수 증가 → Spring Boot Pod 부하 상승
+  → HPA가 CPU 70% 초과 감지 → Pod 확장
+  → NGINX Ingress: 새 WebSocket 연결은 새 Pod로 분산
+  → 기존 연결은 기존 Pod에서 유지 (sticky)
+  → ALB idle_timeout, NGINX proxy-read-timeout 모두 heartbeat 주기보다 길게 설정
+  → 채팅방이 조용해도 ping/pong heartbeat로 연결 유지
+```
+
