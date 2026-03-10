@@ -505,6 +505,7 @@ metadata:
   namespace: app
 spec:
   replicas: 2
+  progressDeadlineSeconds: 120  # 2분 내 배포 진행 없으면 실패 판정 (5.8 참조)
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -675,7 +676,75 @@ spec:
 | 리소스 | 용도 | 소스 |
 |--------|------|------|
 | ConfigMap | 환경 설정 (프로필, 외부 URL 등) | Git 관리 |
-| Secret | 민감 정보 (DB 비밀번호, API 키 등) | AWS SSM Parameter Store에서 주입 |
+| Secret | 민감 정보 (DB 비밀번호, API 키 등) | Sealed Secrets로 암호화하여 Git 관리 (7.5 참조) |
+
+### 5.8 배포 실패 시 자동 보호 및 롤백
+
+#### 5.8.1 자동 보호 메커니즘
+
+5.3의 `maxUnavailable: 0`과 5.4의 readinessProbe가 조합되어, 새 Pod가 Probe를 통과하지 못하면 배포가 자연스럽게 **중단(stall)** 됩니다.
+기존 Pod는 제거되지 않으므로 서비스에는 영향이 없습니다.
+
+여기에 `progressDeadlineSeconds: 120` (5.2 Deployment에 설정)을 더하면, 2분 내 배포가 진행되지 않을 경우 Deployment 상태가 자동으로 `Progressing=False`로 전환되고, ArgoCD가 Degraded 상태로 표시하여 운영자에게 알립니다.
+
+```
+[정상 배포 흐름]
+새 Pod 생성 → readinessProbe 통과 → Service에 등록 → 기존 Pod 제거 → 완료
+
+[실패 배포 흐름]
+새 Pod 생성 → readinessProbe 실패 반복 → Service에 등록되지 않음
+  → maxUnavailable=0이므로 기존 Pod 제거 안 됨 (서비스 영향 없음)
+  → progressDeadlineSeconds 초과 → Deployment 상태 "Progressing=False"
+  → ArgoCD가 Degraded 상태로 표시 → 운영자에게 알림
+```
+
+#### 5.8.2 실패 감지 후 조치
+
+배포가 `progressDeadlineSeconds`를 초과하여 실패 판정된 경우:
+
+```bash
+# 1. 배포 상태 확인 — "Progressing=False" 조건 확인
+$ kubectl rollout status deployment/spring-boot -n app
+# → "error: deployment "spring-boot" exceeded its progress deadline"
+
+# 2. 실패한 새 Pod의 로그 확인
+$ kubectl logs -l app=spring-boot -n app --tail=50
+
+# 3. 이벤트 확인 — readinessProbe 실패 원인 파악
+$ kubectl describe pod -l app=spring-boot -n app | grep -A5 "Events"
+
+# 4. 직전 버전으로 롤백
+$ kubectl rollout undo deployment/spring-boot -n app
+
+# 5. 롤백 완료 확인
+$ kubectl rollout status deployment/spring-boot -n app
+```
+
+> `kubectl rollout undo`는 긴급 대응용입니다. Git과 클러스터 상태가 불일치(OutOfSync)하므로, 이후 cloud-repo에서 `git revert`로 Git 상태를 동기화해야 합니다.
+
+#### 5.8.3 배포 보호 흐름 요약
+
+```
+[배포 시작]
+  → 새 Pod 생성
+  → readinessProbe 실행
+      ├─ 성공 → Service에 등록 → 트래픽 수신 → 기존 Pod 제거 → 배포 완료
+      └─ 실패 → Service에 미등록 → 트래픽 차단 → 기존 Pod 유지 (서비스 무영향)
+                  → progressDeadlineSeconds 초과 → 실패 판정
+                  → ArgoCD Degraded / 알림
+                  → 운영자 확인 후 rollout undo 또는 git revert
+
+[배포 완료 후]
+  → livenessProbe가 지속 감시
+      ├─ 정상 → Pod 유지
+      └─ 실패 (hang 등) → Pod 자동 재시작 → readinessProbe 재통과 후 트래픽 복귀
+```
+
+#### 5.8.4 자동 롤백을 도입하지 않는 이유
+
+- readinessProbe + `maxUnavailable: 0`이 이미 서비스를 보호하므로, 운영자가 판단할 시간이 충분
+- 배포 실패 원인이 코드가 아닌 일시적 외부 요인(DB 연결 지연, ConfigMap 누락 등)일 수 있어, 자동 revert는 불필요한 롤백을 유발할 수 있음
+- Argo Rollouts(Canary/Blue-Green 기반 메트릭 자동 롤백)는 현재 구성(Deployment + ArgoCD) 대비 오버스펙. 규모가 커져 Canary 배포가 필요해지면 도입 검토
 
 ---
 
@@ -1165,6 +1234,9 @@ kubeadm join <NLB_DNS>:6443 \
   → 위 과정을 replica 수만큼 반복
   → WebSocket 사용자: terminationGracePeriodSeconds(60초) 동안 기존 연결 유지 후 종료
   → 전체 과정에서 가용 Pod 수가 줄어들지 않음
+
+배포 실패 시:
+  → readinessProbe 실패 → 기존 Pod 유지 → 서비스 무영향 (상세: 5.8 참조)
 ```
 
 ### 11.4 마스터 노드 장애
@@ -1182,3 +1254,4 @@ kubeadm join <NLB_DNS>:6443 \
   → 새 배포, 스케일링, Pod 재스케줄링 불가
   → etcd 스냅샷으로 복구
 ```
+
