@@ -610,6 +610,76 @@ ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-snapshot.db \
 
 ## 9. 클러스터 구성도
 
+```
+                         ┌──────────────────┐
+                         │    Cloudflare     │
+                         └────────┬─────────┘
+                                  │
+                    ┌─────────────┴─────────────┐
+                    │                           │
+            ┌───────▼───────┐          ┌────────▼────────┐
+            │  CloudFront   │          │   ALB (public)  │
+            │  + S3 (정적)  │          │                 │
+            └───────────────┘          └────────┬────────┘
+                                                │
+                              ┌─────────────────┼─────────────────┐
+                              │         K8s Cluster (3AZ)         │
+                              │                                   │
+                              │  ┌─── Master (HA, 3대, 3AZ) ───┐ │
+                              │  │ etcd, apiserver, scheduler,  │ │
+                              │  │ controller-manager           │ │
+                              │  │         ↕ NLB               │ │
+                              │  └──────────────────────────────┘ │
+                              │                                   │
+                              │  ┌─── Worker (4대, 3AZ) ───────┐ │
+                              │  │                              │ │
+                              │  │  ┌── NGINX Ingress ───────┐ │ │
+                              │  │  │  /api, /ai → ClusterIP │ │ │
+                              │  │  │  /ws → ClusterIP (WS)  │ │ │
+                              │  │  └────────────┬───────────┘ │ │
+                              │  │               │              │ │
+                              │  │     ┌─────────┴─────────┐   │ │
+                              │  │     │  Linkerd mTLS      │   │ │
+                              │  │     └─────────┬─────────┘   │ │
+                              │  │               │              │ │
+                              │  │  ┌────────────┴───────────┐ │ │
+                              │  │  │                        │ │ │
+                              │  │  │  ┌─────────┐ ┌──────┐ │ │ │
+                              │  │  │  │ Spring  │ │Fast  │ │ │ │
+                              │  │  │  │ Boot    │ │API   │ │ │ │
+                              │  │  │  │ ×2~4    │ │×1~2  │ │ │ │
+                              │  │  │  └────┬────┘ └──┬───┘ │ │ │
+                              │  │  │       │         │     │ │ │
+                              │  │  │  spring-svc  fastapi  │ │ │
+                              │  │  │  (ClusterIP) -svc    │ │ │
+                              │  │  └────────────────────────┘ │ │
+                              │  │                              │ │
+                              │  │  ┌───────────┐              │ │
+                              │  │  │  ArgoCD   │              │ │
+                              │  │  │  ×1       │              │ │
+                              │  │  └───────────┘              │ │
+                              │  └──────────────────────────────┘ │
+                              │                                   │
+                              └───────────┬───────────────────────┘
+                                          │
+                              ┌───────────▼───────────┐
+                              │  External Services    │
+                              │  - RDS (PostgreSQL)   │
+                              │  - EC2 Redis          │
+                              └───────────────────────┘
+```
+
+### 트래픽 흐름
+
+```
+정적 파일:  User → Cloudflare → CloudFront → S3
+API 요청:   User → Cloudflare → ALB → NGINX Ingress → spring-svc → Spring Pods
+AI 요청:    User → Cloudflare → ALB → NGINX Ingress → fastapi-svc → FastAPI Pods
+WebSocket:  User → Cloudflare → ALB → NGINX Ingress (/ws, timeout 3600s) → Spring Pods
+내부 통신:  Spring Pods →[Linkerd mTLS]→ fastapi-svc (ClusterIP, DNS)
+DB 접근:    Spring Pods → RDS (외부, Private Subnet)
+```
+
 ## 10. 설정 명세
 
 ## 11. 운영 시나리오
