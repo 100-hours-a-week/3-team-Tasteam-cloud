@@ -861,6 +861,7 @@ Cluster Autoscaler는 ASG의 `DesiredCapacity`만 조절하고, 인스턴스 부
 - **스케일업**: HPA가 Pod를 늘려 Pending이 발생하면, Cluster Autoscaler가 ASG DesiredCapacity를 증가시켜 새 노드를 투입
 - **스케일다운**: 피크 이후 Pod가 축소되어 노드 사용률이 낮아지면, 해당 노드의 Pod를 drain한 뒤 노드를 제거. PDB를 준수하므로 WebSocket 연결이 보호됨
 - **Join 자동화**: Launch Template UserData에 `kubeadm join` 스크립트를 포함하여 새 노드가 부팅 시 자동으로 클러스터에 합류
+- **스케일업 속도 보완**: 새 노드 투입까지 2~3분이 걸리므로, 이 지연이 문제가 될 경우 낮은 Priority의 Pause Pod로 노드에 빈 공간을 미리 확보해두는 Overprovisioning 패턴을 적용할 수 있음
 
 ---
 
