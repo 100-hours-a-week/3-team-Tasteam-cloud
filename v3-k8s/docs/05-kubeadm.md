@@ -757,38 +757,214 @@ spec:
 | 대상 | 관리 방식 | 이유 |
 |------|-----------|------|
 | 애플리케이션 (Spring, FastAPI) | 순수 YAML | 직접 작성하여 구조를 이해하고, 환경별 차이를 명확하게 관리 |
-| 외부 스택 (ALB Controller, ArgoCD) | Helm Chart | 복잡한 외부 도구를 안정적으로 설치·관리 |
+| 외부 스택 (ALB Controller, ArgoCD, Sealed Secrets) | Helm Chart | 복잡한 외부 도구를 안정적으로 설치·관리 |
 
-### 7.2 디렉토리 구조
+### 7.2 환경 격리 방식
 
-```
-manifests/
-  app/
-    base/                   # 공통 YAML
-      deployment.yaml
-      service.yaml
-      ingress.yaml
-      configmap.yaml
-      hpa.yaml
-    overlays/               # 환경별 오버라이드
-      dev/
-      stg/
-      prod/
-  helm/
-    values/
-      alb-controller.yaml
-      argocd.yaml
-```
+단일 클러스터 내에서 namespace로 환경을 분리합니다.
 
-### 7.3 ArgoCD
+| 환경 | Namespace | 용도 |
+|------|-----------|------|
+| dev | `app-dev` | 개발·기능 테스트 |
+| stg | `app-stg` | 통합 테스트·부하 테스트 |
+| prod | `app-prod` | 운영 |
 
-ArgoCD는 `app` namespace의 배포만 관리합니다.
-Git 저장소의 manifest가 변경되면 ArgoCD가 자동으로 감지하여 클러스터에 반영합니다.
+- NetworkPolicy로 namespace 간 트래픽을 차단하여 환경 간 간섭 방지
+- ResourceQuota로 dev/stg가 prod의 리소스를 침범하지 않도록 제한
+- 클러스터 분리나 AWS 계정 분리는 현재 규모 대비 비용/운영 부담이 과도하여 채택하지 않음
+
+### 7.3 디렉토리 구조
 
 ```
-개발자 코드 푸시 → GitHub Actions → Docker 이미지 빌드 → ECR 푸시
-→ manifest의 이미지 태그 업데이트 → ArgoCD 감지 → 클러스터 배포
+v3-k8s/
+  manifests/
+    app/
+      base/                   # 공통 YAML
+        deployment.yaml
+        service.yaml
+        ingress.yaml
+        configmap.yaml
+        hpa.yaml
+      overlays/               # 환경별 오버라이드 (Kustomize)
+        dev/
+          kustomization.yaml
+        stg/
+          kustomization.yaml
+        prod/
+          kustomization.yaml
+    helm/
+      values/
+        alb-controller.yaml
+        argocd.yaml
+        sealed-secrets.yaml
+  argocd/                     # ArgoCD Application 정의
+    app-dev.yaml
+    app-stg.yaml
+    app-prod.yaml
 ```
+
+- `base/`: 모든 환경에 공통인 리소스 정의
+- `overlays/`: 환경별로 replicas, 이미지 태그, 리소스 제한 등을 Kustomize patch로 오버라이드
+- `argocd/`: ArgoCD가 각 환경을 바라보는 Application CR 정의
+
+### 7.4 ArgoCD
+
+#### 7.4.1 GitOps 배포 방식
+
+ArgoCD는 Pull 기반 GitOps 도구입니다.
+CI 파이프라인이 클러스터에 직접 배포하는 Push 방식과 달리, ArgoCD가 Git 저장소를 주기적으로 감시하여 변경을 감지하고 클러스터에 반영합니다.
+
+```
+[Push 방식 (기존)]
+개발자 → git push → CI → kubectl apply (CI가 클러스터 접근 권한 필요)
+
+[Pull 방식 (ArgoCD)]
+개발자 → git push → CI → 이미지 빌드/푸시 → manifest 이미지 태그 업데이트
+                                              ↓
+                              ArgoCD가 Git 변경 감지 → 클러스터에 반영
+```
+
+Pull 방식의 이점:
+- CI 파이프라인에 클러스터 접근 권한(kubeconfig)을 부여하지 않아도 됨
+- Git이 단일 진실 공급원(Single Source of Truth)이 되어, 클러스터 상태가 항상 Git과 일치
+- 누가, 언제, 무엇을 배포했는지 Git 커밋 히스토리로 추적 가능
+
+#### 7.4.2 멀티 레포 전략
+
+애플리케이션 코드와 K8s manifest를 별도 레포에서 관리합니다.
+
+| 레포 | 역할 | 관리 주체 |
+|------|------|-----------|
+| frontend-repo | React 소스 코드 + CI | 프론트엔드 개발자 |
+| backend-repo | Spring Boot 소스 코드 + CI | 백엔드 개발자 |
+| ai-repo | FastAPI 소스 코드 + CI | AI 개발자 |
+| cloud-repo | K8s manifest + ArgoCD Application + 인프라 코드 | 클라우드 담당 |
+
+- 개발자는 코드만 푸시하면 되고, K8s manifest를 알 필요 없음
+- manifest 변경(포트, 환경변수, 리소스 등)은 클라우드 담당자가 cloud-repo에서 관리
+- ArgoCD는 cloud-repo만 감시
+
+**한계:**
+- 각 서비스 CI에서 cloud-repo에 cross-repo commit이 필요 (GitHub App 토큰 관리)
+- 동시 빌드 시 같은 파일을 수정하면 push 충돌 가능 → 서비스별 이미지 태그 파일 분리로 대응
+- 배포 추적 시 이미지 태그(SHA) → 원본 레포 커밋을 역추적해야 함
+
+#### 7.4.3 배포 파이프라인
+
+```
+[backend-repo CI]
+1. 개발자 코드 푸시 (backend-repo)
+2. GitHub Actions → Docker 이미지 빌드 → ECR 푸시 (태그: git SHA)
+3. GitHub Actions → cloud-repo의 manifest 이미지 태그를 새 SHA로 업데이트 (cross-repo commit)
+
+[ai-repo CI]
+1. 개발자 코드 푸시 (ai-repo)
+2. GitHub Actions → Docker 이미지 빌드 → ECR 푸시 (태그: git SHA)
+3. GitHub Actions → cloud-repo의 manifest 이미지 태그를 새 SHA로 업데이트 (cross-repo commit)
+
+[frontend-repo CI]
+1. 개발자 코드 푸시 (frontend-repo)
+2. GitHub Actions → 정적 파일 빌드 → S3 + CloudFront 배포
+3. (K8s 배포 불필요 - CDN을 통해 직접 서빙)
+
+[ArgoCD]
+4. cloud-repo의 manifest 변경 감지 → 환경별 정책에 따라 클러스터 동기화
+```
+
+cross-repo commit은 `github-actions[bot]` 계정으로 수행되며, 커밋 메시지에 원본 레포의 커밋 SHA를 포함하여 추적성을 확보합니다.
+
+#### 7.4.4 환경별 동기화 정책
+
+| 환경 | 동기화 방식 | 이유 |
+|------|------------|------|
+| dev | **자동 동기화** (Auto Sync) | 매일 수회 배포, 빠른 피드백 필요 |
+| stg | **수동 동기화** (Manual Sync) | 부하 테스트 등 진행 중 의도치 않은 배포 방지 |
+| prod | **수동 동기화** (Manual Sync) | 클라우드 담당자가 ArgoCD UI에서 명시적으로 Sync 버튼 클릭 |
+
+- dev: Git에 manifest가 반영되면 ArgoCD가 즉시 클러스터에 동기화
+- stg/prod: Git에 manifest가 반영되어도 ArgoCD는 "OutOfSync" 상태만 표시. 클라우드 담당 2인 중 1인이 확인 후 수동으로 Sync 실행
+
+#### 7.4.5 ArgoCD Application 예시 (prod)
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tasteam-prod
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/100-hours-a-week/3-team-Tasteam-cloud.git
+    targetRevision: main
+    path: v3-k8s/manifests/app/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app
+  syncPolicy:
+    # prod는 자동 동기화 비활성화 (수동 승인)
+    automated: null
+```
+
+dev Application에서는 `syncPolicy`에 아래를 추가합니다:
+
+```yaml
+  syncPolicy:
+    automated:
+      prune: true       # Git에서 삭제된 리소스를 클러스터에서도 삭제
+      selfHeal: true     # 수동 변경(kubectl edit 등)을 Git 상태로 자동 되돌림
+```
+
+### 7.5 Secret 관리
+
+#### 7.5.1 문제
+
+GitOps에서는 모든 리소스를 Git에 저장하는 것이 원칙이지만, Secret(DB 비밀번호, API 키 등)은 평문으로 Git에 커밋할 수 없습니다.
+
+#### 7.5.2 방식: Sealed Secrets
+
+Sealed Secrets(Bitnami)를 사용하여 Secret을 암호화된 형태로 Git에 저장합니다.
+
+```
+[암호화 흐름]
+1. 클러스터에 Sealed Secrets Controller 설치 (복호화 키 보유)
+2. 로컬에서 kubeseal CLI로 Secret을 암호화 → SealedSecret 리소스 생성
+3. SealedSecret을 Git에 커밋 (암호화된 상태이므로 안전)
+4. ArgoCD가 SealedSecret을 클러스터에 배포
+5. Sealed Secrets Controller가 복호화 → 실제 Secret 리소스 생성
+```
+
+```bash
+# 암호화 예시
+kubectl create secret generic db-credentials \
+  --from-literal=password=my-secret-pw \
+  --dry-run=client -o yaml | \
+  kubeseal --format yaml > sealed-db-credentials.yaml
+```
+
+```yaml
+# sealed-db-credentials.yaml (Git에 커밋 가능)
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: db-credentials
+  namespace: app
+spec:
+  encryptedData:
+    password: AgBy3i4OJSWK+PiTySYZZA9rO...  # 암호화된 값
+```
+
+#### 7.5.3 Sealed Secrets 선택 이유
+
+| 방식 | 장점 | 단점 | 판정 |
+|------|------|------|------|
+| AWS SSM + ExternalSecrets | AWS 네이티브, Secret 중앙 관리 | ExternalSecrets Operator 추가 설치, AWS IAM 연동 필요 | 후보 |
+| HashiCorp Vault | 강력한 접근 제어, 동적 시크릿 | 별도 Vault 클러스터 운영 필요, 과도한 복잡도 | 제외 |
+| **Sealed Secrets** | **Git 단일 관리, 추가 인프라 불필요, 단순함** | **Secret 갱신 시 재암호화 필요** | **선택** |
+
+- 현재 팀 규모(6인, 클라우드 2인)에서 Vault는 운영 부담이 과도함
+- Sealed Secrets는 Git에 모든 것을 저장한다는 GitOps 원칙과 가장 잘 부합
+- Secret 갱신이 빈번하지 않으므로 재암호화 비용이 낮음
 
 ---
 
