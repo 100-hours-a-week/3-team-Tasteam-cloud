@@ -1101,6 +1101,37 @@ spec:
 - Sealed Secrets는 Git에 모든 것을 저장한다는 GitOps 원칙과 가장 잘 부합
 - Secret 갱신이 빈번하지 않으므로 재암호화 비용이 낮음
 
+#### 7.5.4 Sealed Secrets 복호화 키 백업
+
+Sealed Secrets Controller는 설치 시 암호화/복호화용 개인키(private key)를 생성하여 `kube-system` namespace의 Secret으로 저장합니다.
+이 키가 유실되면 Git에 저장된 모든 SealedSecret을 복호화할 수 없으므로, **클러스터 구축 직후 반드시 백업**해야 합니다.
+
+```bash
+# 개인키 백업
+kubectl get secret -n kube-system \
+  -l sealedsecrets.bitnami.com/sealed-secrets-key \
+  -o yaml > sealed-secrets-key-backup.yaml
+
+# 안전한 외부 저장소에 보관
+aws s3 cp sealed-secrets-key-backup.yaml \
+  s3://<백업 버킷>/sealed-secrets/sealed-secrets-key-backup.yaml \
+  --sse aws:kms
+```
+
+**클러스터 재구축 시 복원 절차:**
+
+```bash
+# 1. 백업된 키를 먼저 복원 (컨트롤러 설치 전에 수행)
+kubectl apply -f sealed-secrets-key-backup.yaml
+
+# 2. Sealed Secrets Controller 설치
+helm install sealed-secrets sealed-secrets/sealed-secrets -n kube-system
+
+# 3. 컨트롤러가 기존 키를 인식 → Git의 SealedSecret들이 정상 복호화됨
+```
+
+> **키 유실 시**: 모든 Secret의 평문 원본을 확보하여 새 키로 재암호화해야 합니다. 평문 원본도 없으면 DB 비밀번호, API 키 등을 전부 재발급해야 합니다.
+
 ---
 
 ## 8. 장애 대응 및 자동 복구
