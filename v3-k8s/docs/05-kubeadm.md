@@ -377,7 +377,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: tasteam-api-ingress
-  namespace: app
+  namespace: app-prod
 spec:
   ingressClassName: nginx
   rules:
@@ -388,23 +388,23 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: spring-boot-svc
+                name: spring-svc
                 port:
-                  number: 8080
+                  number: 80
           - path: /ai
             pathType: Prefix
             backend:
               service:
                 name: fastapi-svc
                 port:
-                  number: 8000
+                  number: 80
 ---
 # WebSocket Ingress — 장시간 연결 유지
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: tasteam-ws-ingress
-  namespace: app
+  namespace: app-prod
   annotations:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
@@ -418,9 +418,9 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: spring-boot-svc
+                name: spring-svc
                 port:
-                  number: 8080
+                  number: 80
 ```
 
 `/api`, `/ai`는 기본 타임아웃(60초)으로 충분하고, `/ws`만 3600초로 설정하여 채팅 연결이 유지되도록 합니다.
@@ -451,28 +451,28 @@ Spring Boot Pod → fastapi-svc.app.svc.cluster.local:8000 → FastAPI Pod
 
 > **주의**: DNS 허용 정책을 먼저 적용하지 않으면 서비스 디스커버리가 차단되어 전체 통신 장애가 발생합니다.
 
-#### NetworkPolicy 예시: DB Pod 접근 제한
+#### NetworkPolicy 예시: FastAPI는 Spring에서만 접근 허용
 
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: db-allow-backend-only
-  namespace: app
+  name: fastapi-allow-spring-only
+  namespace: app-prod
 spec:
   podSelector:
     matchLabels:
-      app: db
+      app: fastapi
   policyTypes:
     - Ingress
   ingress:
     - from:
         - podSelector:
             matchLabels:
-              app: backend
+              app: spring-boot
       ports:
         - protocol: TCP
-          port: 5432
+          port: 8000
 ```
 
 ### 4.7 암호화 정책
@@ -652,25 +652,35 @@ spec:
 
 </details>
 
-### 5.6 Ingress (ALB)
+### 5.6 Ingress (NGINX Ingress Controller)
 
-Caddy를 제거하고 ALB + AWS Load Balancer Controller로 외부 트래픽을 라우팅합니다.
-정적 파일은 S3 + CloudFront(CDN)로 분리하고, ALB는 API 트래픽만 처리합니다.
+Caddy를 제거하고 NGINX Ingress Controller로 외부 트래픽을 라우팅합니다.
+정적 파일은 S3 + CloudFront(CDN)로 분리하고, API 트래픽은 NLB → NGINX Ingress → Pod 경로로 처리합니다.
+
+> **ALB Ingress를 사용하지 않는 이유**
+> 1. kubeadm 클러스터에서 ALB Ingress Controller를 쓰려면 AWS API 호출을 위한 IAM 권한을 수동 구성해야 하며, EKS의 IRSA가 없어 운영 복잡도가 높음
+> 2. ALB의 idle_timeout은 로드밸런서 단위라 경로별(`/api` vs `/ws`) 타임아웃 분리가 불가능. 분리하려면 ALB를 2개 생성해야 하므로 비용 증가
+>
+> NGINX Ingress는 kubeadm에서 추가 설정 없이 동작하고, annotation으로 경로별 타임아웃을 자유롭게 분리할 수 있으므로 현재 구성에 적합합니다.
+
+외부 진입은 NLB(L4)가 담당합니다.
+NLB는 TCP 패킷을 그대로 전달하고, L7 라우팅(경로 기반 분기)은 NGINX Ingress가 처리합니다.
+NGINX Ingress Pod에 직접 접근하려면 워커 노드의 IP를 외부에 노출해야 하는데, 노드 장애 시 트래픽이 죽은 노드로 향할 수 있습니다.
+NLB는 헬스체크로 정상 노드만 선택하고, 고정 DNS 엔드포인트를 제공하여 Cloudflare에는 NLB DNS 하나만 등록하면 됩니다.
+
+Ingress 리소스는 4.5.3에서 정의한 것과 동일하게 API용과 WebSocket용을 분리합니다. (4.5.3 참조)
 
 <details>
-<summary>Ingress YAML</summary>
+<summary>Ingress YAML (API + AI)</summary>
 
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: api-ingress
+  name: tasteam-api-ingress
   namespace: app-prod
-  annotations:
-    kubernetes.io/ingress.class: alb
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
 spec:
+  ingressClassName: nginx
   rules:
     - host: api.tasteam.com
       http:
@@ -687,6 +697,35 @@ spec:
             backend:
               service:
                 name: fastapi-svc
+                port:
+                  number: 80
+```
+
+</details>
+
+<details>
+<summary>Ingress YAML (WebSocket)</summary>
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tasteam-ws-ingress
+  namespace: app-prod
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.tasteam.com
+      http:
+        paths:
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: spring-svc
                 port:
                   number: 80
 ```
@@ -787,7 +826,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: spring-boot-hpa
-  namespace: app
+  namespace: app-prod
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -811,7 +850,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: fastapi-hpa
-  namespace: app
+  namespace: app-prod
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -995,7 +1034,7 @@ spec:
     path: v3-k8s/manifests/app/overlays/prod
   destination:
     server: https://kubernetes.default.svc
-    namespace: app
+    namespace: app-prod
   syncPolicy:
     # prod는 자동 동기화 비활성화 (수동 승인)
     automated: null
@@ -1043,7 +1082,7 @@ apiVersion: bitnami.com/v1alpha1
 kind: SealedSecret
 metadata:
   name: db-credentials
-  namespace: app
+  namespace: app-prod
 spec:
   encryptedData:
     password: AgBy3i4OJSWK+PiTySYZZA9rO...  # 암호화된 값
@@ -1083,7 +1122,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: spring-boot-pdb
-  namespace: app
+  namespace: app-prod
 spec:
   minAvailable: 1
   selector:
