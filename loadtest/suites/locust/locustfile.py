@@ -25,7 +25,7 @@ class TasteamUser(HttpUser):
         self.group_id = None
         self.subgroup_id = None
         self.chat_room_id = None
-        self.restaurant_id = 6001
+        self.restaurant_id = None
 
         uid = random.randint(1, USER_ID_MAX)
         login_body = {
@@ -57,6 +57,25 @@ class TasteamUser(HttpUser):
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         }
+
+    def _extract_restaurant_ids_from_sections(self, payload):
+        ids = []
+        sections = payload.get("data", {}).get("sections", [])
+        for section in sections:
+            for item in section.get("items", []):
+                restaurant_id = item.get("restaurantId") or item.get("id")
+                if restaurant_id and restaurant_id not in ids:
+                    ids.append(restaurant_id)
+        return ids
+
+    def _extract_restaurant_ids_from_search(self, payload):
+        ids = []
+        restaurants = payload.get("data", {}).get("restaurants", {}).get("items", [])
+        for item in restaurants:
+            restaurant_id = item.get("restaurantId") or item.get("id")
+            if restaurant_id and restaurant_id not in ids:
+                ids.append(restaurant_id)
+        return ids
 
     def _ensure_group_context(self, headers):
         r = self.client.get("/api/v1/members/me/groups", headers=headers, name="members/me/groups")
@@ -127,16 +146,18 @@ class TasteamUser(HttpUser):
         if not self.token:
             return
         h = self._auth_headers()
-        self.client.get("/api/v1/main/home?latitude=37.4979&longitude=127.0276", headers=h, name="journey:browsing/main_home")
-        r = self.client.get("/api/v1/restaurants?latitude=37.4979&longitude=127.0276", headers=h, name="journey:browsing/restaurants")
+        r = self.client.get("/api/v1/main/home?latitude=37.4979&longitude=127.0276", headers=h, name="journey:browsing/main_home")
         rid = self.restaurant_id
         if r.status_code == 200:
             try:
-                items = r.json().get("data", {}).get("items", [])
-                if items:
-                    rid = random.choice(items).get("id", rid)
+                restaurant_ids = self._extract_restaurant_ids_from_sections(r.json())
+                if restaurant_ids:
+                    rid = random.choice(restaurant_ids)
+                    self.restaurant_id = rid
             except Exception:
                 pass
+        if not rid:
+            return
         self.client.get(f"/api/v1/restaurants/{rid}", headers=h, name="journey:browsing/restaurant_detail")
         self.client.get(f"/api/v1/restaurants/{rid}/menus", headers=h, name="journey:browsing/restaurant_menus")
         self.client.get(f"/api/v1/restaurants/{rid}/reviews", headers=h, name="journey:browsing/restaurant_reviews")
@@ -147,8 +168,23 @@ class TasteamUser(HttpUser):
             return
         h = self._auth_headers()
         keyword = random.choice(SEARCH_KEYWORDS)
-        self.client.post(f"/api/v1/search?keyword={keyword}", headers=h, name="journey:searching/search")
-        self.client.get(f"/api/v1/restaurants/{self.restaurant_id}", headers=h, name="journey:searching/restaurant_detail")
+        res = self.client.post(
+            f"/api/v1/search?keyword={keyword}&latitude=37.4979&longitude=127.0276&radiusKm=1",
+            headers=h,
+            name="journey:searching/search",
+        )
+        rid = self.restaurant_id
+        if res.status_code == 200:
+            try:
+                restaurant_ids = self._extract_restaurant_ids_from_search(res.json())
+                if restaurant_ids:
+                    rid = random.choice(restaurant_ids)
+                    self.restaurant_id = rid
+            except Exception:
+                pass
+        if not rid:
+            return
+        self.client.get(f"/api/v1/restaurants/{rid}", headers=h, name="journey:searching/restaurant_detail")
 
     @task(12)
     def group_journey(self):
@@ -208,7 +244,7 @@ class TasteamUser(HttpUser):
 
     @task(8)
     def writing_journey(self):
-        if not self.token or not self.group_id:
+        if not self.token or not self.group_id or not self.restaurant_id:
             return
         h = self._auth_headers()
         self.client.post(

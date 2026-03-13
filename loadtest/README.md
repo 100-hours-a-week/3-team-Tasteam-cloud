@@ -47,7 +47,7 @@
 - `TEST_GROUP_CODE`: 그룹 가입 시도에 사용하는 비밀번호/코드. 기본 시드 기준값은 `1234`
 - `GROUP_SEARCH_KEYWORDS`: 가입 후보 그룹을 찾을 검색 키워드 목록
 - `TEST_GROUP_ID`: 고정 그룹 직접 가입이 필요한 예외 스크립트용 식별자
-- `TEST_RESTAURANT_ID`: 리뷰 작성 fallback 음식점 ID
+- `TEST_RESTAURANT_ID`: 예외적으로 고정 음식점 ID를 강제해야 할 때만 사용하는 선택값
 - `USER_POOL`: 로그인에 사용할 테스트 계정 수
 
 대부분의 suite는 `내 그룹 조회 -> 없으면 그룹 검색 -> 검색 결과 그룹에 TEST_GROUP_CODE로 가입 시도` 흐름을 사용합니다.

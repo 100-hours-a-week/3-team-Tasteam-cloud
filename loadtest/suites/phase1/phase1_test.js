@@ -6,7 +6,7 @@ import {
     createState,
     getReviewKeywords,
     getHomePage,
-    getRestaurantListByLocation,
+    getRestaurantDetail,
     getGroupDetail,
     getSubgroupDetail,
     getSubgroupMembers,
@@ -31,6 +31,8 @@ import {
     pickSubgroupId,
     pickChatRoomId,
     pickRestaurantId,
+    extractRestaurantIdsFromMainResponse,
+    pickRandomRestaurantId,
     resolveGroupContext,
     resolveSubgroupChatContext,
 } from '../../shared/scenarios.js';
@@ -394,12 +396,13 @@ export function spikeSearch(data) {
 export function spikeMain(data) {
     const state = buildState(data);
     const loc = randomLocation();
-    const h = getHomePage(state.token);
-    const list = getRestaurantListByLocation(state.token, loc.lat, loc.lon, 1000, 20);
+    const h = getHomePage(state.token, loc.lat, loc.lon);
+    const restaurantId = pickRandomRestaurantId(extractRestaurantIdsFromMainResponse(h));
+    const detail = restaurantId ? getRestaurantDetail(state.token, restaurantId) : null;
     if (h && h.status === 200) readSuccess.add(1);
-    if (list && list.response && list.response.status === 200) readSuccess.add(1);
+    if (detail && detail.status === 200) readSuccess.add(1);
     postProcess(h);
-    postProcess(list && list.response);
+    postProcess(detail);
     sleep(0.3);
 }
 

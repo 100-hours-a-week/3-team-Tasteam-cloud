@@ -685,7 +685,8 @@ def build_seed_sql(cfg: dict[str, Any]) -> str:
 
     summary_json = jsonb_literal(
         {
-            "summary": content["summary_text"],
+            "overall_summary": content["summary_text"],
+            "categories": {},
             "highlights": content["summary_highlights"],
         }
     )

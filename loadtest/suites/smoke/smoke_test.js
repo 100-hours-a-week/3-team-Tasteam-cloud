@@ -1,7 +1,11 @@
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { withQuickRunOptions } from '../../shared/quick-run.js';
-import { resolveGroupContext } from '../../shared/scenarios.js';
+import {
+    extractRestaurantIdsFromMainResponse,
+    pickRandomRestaurantId,
+    resolveGroupContext,
+} from '../../shared/scenarios.js';
 
 export const options = withQuickRunOptions({
     vus: 1, // 스모크 테스트를 위한 1명의 가상 유저
@@ -109,25 +113,23 @@ export default function () {
         });
     });
 
-    // 음식점 목록 조회 + 첫 번째 ID 추출
-    group('음식점 목록 조회', function () {
-        const res = http.get(`${BASE_URL}/api/v1/restaurants?latitude=37.395&longitude=127.11`, authParams);
+    // 메인 페이지에서 노출된 음식점 ID 추출
+    group('메인 노출 음식점 선택', function () {
+        const res = http.get(`${BASE_URL}/api/v1/main?latitude=37.395&longitude=127.11`, authParams);
         check(res, {
-            '음식점 목록 조회 성공 (200)': (r) => r.status === 200,
+            '메인 페이지 조회 성공 (200)': (r) => r.status === 200,
         });
 
-        // 목록에서 첫 번째 음식점 ID 추출
         if (res.status === 200) {
             try {
-                const items = res.json('data.items');
-                if (items && items.length > 0) {
-                    restaurantId = items[0].id;
-                    console.log(`[음식점 목록] 첫 번째 음식점 ID: ${restaurantId}`);
+                restaurantId = pickRandomRestaurantId(extractRestaurantIdsFromMainResponse(res));
+                if (restaurantId) {
+                    console.log(`[메인 노출 음식점] 선택된 음식점 ID: ${restaurantId}`);
                 } else {
-                    console.log('[음식점 목록] 데이터 없음 - 단건 조회 스킵됨');
+                    console.log('[메인 노출 음식점] 데이터 없음 - 단건 조회 스킵됨');
                 }
             } catch (e) {
-                console.log(`[음식점 목록] JSON 파싱 실패: ${e}`);
+                console.log(`[메인 노출 음식점] JSON 파싱 실패: ${e}`);
             }
         }
     });
@@ -255,8 +257,12 @@ export default function () {
     // 음식점 리뷰 작성
     // 주의: 실제 DB에 데이터가 쌓이므로 테스트 DB 등에서 수행 권장
     group('음식점 리뷰 작성', function () {
+        if (!restaurantId) {
+            console.log('[음식점 리뷰 작성] 스킵 - 음식점 ID 없음');
+            return;
+        }
         // groupId가 필요하므로 앞서 추출한 groupId 사용 (없으면 1 사용)
-        const targetRestaurantId = 6001;
+        const targetRestaurantId = restaurantId;
         const targetGroupId = groupId || 1;
 
         // 조회된 키워드 중 첫 번째 사용 (없으면 기본값 1)

@@ -34,7 +34,7 @@ const GROUP_SEARCH_KEYWORDS = parseCsvEnv('GROUP_SEARCH_KEYWORDS').length > 0
     : ['테스트'];
 const GROUP_SEARCH_LIMIT = parsePositiveIntEnv('GROUP_SEARCH_LIMIT', 10);
 
-const TEST_RESTAURANT_ID = parsePositiveIntEnv('TEST_RESTAURANT_ID', 6001);
+const TEST_RESTAURANT_ID = parsePositiveIntEnv('TEST_RESTAURANT_ID', -1);
 
 // ============ Hotspot Configuration ============
 const HOTSPOT_CONFIG = {
@@ -325,9 +325,9 @@ export function getReviewKeywords(token) {
 /**
  * 메인 페이지 조회
  */
-export function getMainPage(token) {
+export function getMainPage(token, lat = 37.395, lon = 127.11) {
     const res = http.get(
-        `${BASE_URL}/api/v1/main?latitude=37.395&longitude=127.11`,
+        `${BASE_URL}/api/v1/main?latitude=${lat}&longitude=${lon}`,
         { headers: getHeaders(token), tags: { name: 'main_page', type: 'read' } }
     );
 
@@ -338,33 +338,60 @@ export function getMainPage(token) {
     return res;
 }
 
-/**
- * 음식점 목록 조회
- */
-export function getRestaurantList(token) {
-    const res = http.get(
-        `${BASE_URL}/api/v1/restaurants?latitude=37.395&longitude=127.11`,
-        { headers: getHeaders(token), tags: { name: 'restaurant_list', type: 'read' } }
-    );
-
-    check(res, {
-        '음식점 목록 조회 성공 (200)': (r) => r.status === 200,
-    });
-
-    // 첫 번째 음식점 ID 추출
-    let restaurantId = null;
-    if (res.status === 200) {
-        try {
-            const items = res.json('data.items');
-            if (items && items.length > 0) {
-                restaurantId = items[0].id;
-            }
-        } catch (e) {
-            // ignore
-        }
+function collectRestaurantIdsFromItems(items, collector) {
+    if (!Array.isArray(items)) {
+        return;
     }
 
-    return { response: res, restaurantId };
+    items.forEach((item) => {
+        const restaurantId = item && (item.restaurantId || item.id);
+        if (restaurantId) {
+            collector.add(restaurantId);
+        }
+    });
+}
+
+export function extractRestaurantIdsFromMainResponse(res) {
+    if (!res || res.status !== 200) {
+        return [];
+    }
+
+    const collector = new Set();
+    try {
+        const sections = res.json('data.sections') || [];
+        sections.forEach((section) => collectRestaurantIdsFromItems(section && section.items, collector));
+    } catch (e) {
+        // ignore
+    }
+
+    return Array.from(collector);
+}
+
+export function extractRestaurantIdsFromSearchResponse(res) {
+    if (!res || res.status !== 200) {
+        return [];
+    }
+
+    const collector = new Set();
+    try {
+        collectRestaurantIdsFromItems(res.json('data.restaurants.items') || [], collector);
+    } catch (e) {
+        // ignore
+    }
+    try {
+        collectRestaurantIdsFromItems(res.json('data.items') || [], collector);
+    } catch (e) {
+        // ignore
+    }
+
+    return Array.from(collector);
+}
+
+export function pickRandomRestaurantId(ids) {
+    if (!ids || ids.length === 0) {
+        return null;
+    }
+    return ids[Math.floor(Math.random() * ids.length)];
 }
 
 /**
@@ -507,8 +534,8 @@ export function search(token, keyword = 'test', loc = null) {
 /**
  * 리뷰 작성
  */
-export function createReview(token, groupId, keywordIds, restaurantId = TEST_RESTAURANT_ID) {
-    if (!groupId) {
+export function createReview(token, groupId, keywordIds, restaurantId = null) {
+    if (!groupId || !restaurantId) {
         return null;
     }
 
@@ -544,13 +571,14 @@ export function executeReadScenario(state) {
     let successCount = 0;
 
     // 메인 페이지
-    const resMain = getMainPage(state.token);
+    const loc = randomLocation();
+    const resMain = getMainPage(state.token, loc.lat, loc.lon);
     if (resMain && resMain.status === 200) successCount++;
 
-    // 음식점 목록 + ID 추출
-    const listResult = getRestaurantList(state.token);
-    if (listResult.response && listResult.response.status === 200) successCount++;
-    const restaurantId = pickRestaurantId(state, listResult.restaurantId || state.restaurantId);
+    let restaurantId = pickRestaurantId(
+        state,
+        pickRandomRestaurantId(extractRestaurantIdsFromMainResponse(resMain)) || state.restaurantId
+    );
 
     // 음식점 상세
     if (restaurantId) {
@@ -584,7 +612,12 @@ export function executeReadScenario(state) {
 
     // 통합 검색
     const resSearch = search(state.token, pickKeyword(state), randomLocation());
-    if (resSearch && resSearch.status === 200) successCount++;
+    if (resSearch && resSearch.status === 200) {
+        successCount++;
+        if (!restaurantId) {
+            restaurantId = pickRestaurantId(state, pickRandomRestaurantId(extractRestaurantIdsFromSearchResponse(resSearch)));
+        }
+    }
 
     return successCount;
 }
@@ -689,21 +722,18 @@ function collectRestaurantIds(token, targetCount, rounds) {
 
     for (let i = 0; i < maxRounds; i++) {
         const loc = randomLocation();
-        const size = Math.min(50, Math.max(10, Math.floor(limit / maxRounds)));
-        const res = http.get(
-            `${BASE_URL}/api/v1/restaurants?latitude=${loc.lat}&longitude=${loc.lon}&radius=2000&size=${size}`,
-            { headers: getHeaders(token), tags: { name: 'restaurant_list_seed', type: 'read' } }
+        const keyword = SEARCH_KEYWORDS[i % SEARCH_KEYWORDS.length] || randomKeyword();
+
+        const mainRes = getMainPage(token, loc.lat, loc.lon);
+        extractRestaurantIdsFromMainResponse(mainRes).forEach((id) => ids.add(id));
+
+        const searchRes = http.post(
+            `${BASE_URL}/api/v1/search?keyword=${encodeURIComponent(keyword)}&latitude=${loc.lat}&longitude=${loc.lon}&radiusKm=1`,
+            null,
+            { headers: getHeaders(token), tags: { name: 'search_seed', type: 'read' } }
         );
-        if (res.status === 200) {
-            try {
-                const items = res.json('data.items') || [];
-                items.forEach((item) => {
-                    if (item && item.id) ids.add(item.id);
-                });
-            } catch (e) {
-                // ignore
-            }
-        }
+        extractRestaurantIdsFromSearchResponse(searchRes).forEach((id) => ids.add(id));
+
         if (ids.size >= limit) break;
     }
 
@@ -792,7 +822,9 @@ export function pickRestaurantId(state, fallbackId = null) {
         const picked = pickFromHotspot(hs.restaurants.hot, hs.restaurants.cold, hs.config.restaurant.hotShare);
         if (picked) return picked;
     }
-    return fallbackId || (state && state.restaurantId) || TEST_RESTAURANT_ID;
+    if (fallbackId) return fallbackId;
+    if (state && state.restaurantId) return state.restaurantId;
+    return TEST_RESTAURANT_ID > 0 ? TEST_RESTAURANT_ID : null;
 }
 
 export function pickGroupId(state) {
@@ -833,8 +865,10 @@ export function pickKeyword(state) {
 
 // ============ Additional API Functions ============
 
-export function getHomePage(token) {
-    const loc = randomLocation();
+export function getHomePage(token, lat = null, lon = null) {
+    const loc = (lat !== null && lon !== null)
+        ? { lat, lon }
+        : randomLocation();
     const res = http.get(
         `${BASE_URL}/api/v1/main/home?latitude=${loc.lat}&longitude=${loc.lon}`,
         { headers: getHeaders(token), tags: { name: 'home_page', type: 'read' } }
@@ -860,28 +894,6 @@ export function getRestaurantMenus(token, restaurantId) {
     );
     check(res, { '음식점 메뉴 조회 성공 (200)': (r) => r.status === 200 });
     return res;
-}
-
-export function getRestaurantListByLocation(token, lat, lon, radius, size) {
-    const pageSize = size || (Math.floor(Math.random() * 16) + 5);
-    const radiusVal = radius || RADII[Math.floor(Math.random() * RADII.length)];
-    const res = http.get(
-        `${BASE_URL}/api/v1/restaurants?latitude=${lat}&longitude=${lon}&radius=${radiusVal}&size=${pageSize}`,
-        { headers: getHeaders(token), tags: { name: 'restaurant_list_loc', type: 'read' } }
-    );
-    check(res, { '음식점 목록(위치) 조회 성공 (200)': (r) => r.status === 200 });
-    let restaurantId = null;
-    if (res.status === 200) {
-        try {
-            const items = res.json('data.items');
-            if (items && items.length > 0) {
-                restaurantId = items[Math.floor(Math.random() * items.length)].id;
-            }
-        } catch (e) {
-            // ignore
-        }
-    }
-    return { response: res, restaurantId };
 }
 
 export function getMyProfile(token) {
@@ -1382,7 +1394,7 @@ export function sendAnalyticsEvents(token, events) {
 // ============ Journey Functions ============
 
 /**
- * 브라우징 여정: 홈 → 음식 카테고리 → 음식점 목록(랜덤 위치) → 상세 → 메뉴 → 리뷰
+ * 브라우징 여정: 홈 → 음식 카테고리 → 홈에서 노출된 음식점 상세 → 메뉴 → 리뷰
  */
 export function executeBrowsingJourney(state) {
     let successCount = 0;
@@ -1394,11 +1406,13 @@ export function executeBrowsingJourney(state) {
     if (resGeo && resGeo.status === 200) successCount++;
 
     // 1. 홈 페이지
-    const resHome = getHomePage(state.token);
+    const resHome = getHomePage(state.token, loc.lat, loc.lon);
     if (resHome && resHome.status === 200) {
         successCount++;
         analyticsEvents.push(buildEvent('ui.page.viewed', { page: 'home' }));
     }
+
+    const homeRestaurantId = pickRandomRestaurantId(extractRestaurantIdsFromMainResponse(resHome));
 
     // 2. 음식 카테고리
     const resCat = getFoodCategories();
@@ -1407,13 +1421,8 @@ export function executeBrowsingJourney(state) {
         analyticsEvents.push(buildEvent('ui.page.viewed', { page: 'restaurant_list' }));
     }
 
-    // 3. 음식점 목록 (랜덤 위치/반경/페이지 크기)
-    const radius = RADII[Math.floor(Math.random() * RADII.length)];
-    const size = Math.floor(Math.random() * 16) + 5;
-    const listResult = getRestaurantListByLocation(state.token, loc.lat, loc.lon, radius, size);
-    if (listResult.response && listResult.response.status === 200) successCount++;
-
-    const restaurantId = pickRestaurantId(state, listResult.restaurantId || state.restaurantId);
+    // 3. 홈에서 노출된 음식점 중 하나를 선택
+    const restaurantId = pickRestaurantId(state, homeRestaurantId || state.restaurantId);
     if (restaurantId) {
         // 4. 음식점 상세
         const resDetail = getRestaurantDetail(state.token, restaurantId);
@@ -1482,15 +1491,9 @@ export function executeSearchingJourney(state) {
         if (res && res.status === 200) {
             successCount++;
             analyticsEvents.push(buildEvent('ui.search.executed', { keyword, hasLocation: true }));
-            if (!lastRestaurantId) {
-                try {
-                    const items = res.json('data.restaurants.items');
-                    if (items && items.length > 0) {
-                        lastRestaurantId = items[0].id;
-                    }
-                } catch (e) {
-                    // ignore
-                }
+            const searchRestaurantId = pickRandomRestaurantId(extractRestaurantIdsFromSearchResponse(res));
+            if (searchRestaurantId) {
+                lastRestaurantId = searchRestaurantId;
             }
         }
         if (i < searchCount - 1) sleep(0.5);

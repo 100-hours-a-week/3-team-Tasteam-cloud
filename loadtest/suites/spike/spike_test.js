@@ -5,7 +5,7 @@
  *
  * SPIKE_TARGET 환경변수로 시나리오 선택:
  *   search  (기본값) - POST /search, ramping-arrival-rate 0→300 RPS, 3분
- *   main             - GET /main/home + /restaurants, 2→500 VU, 3분
+ *   main             - GET /main/home + main 노출 음식점 상세, 2→500 VU, 3분
  *   group            - 그룹/서브그룹 조회, 2→300 VU, 3분
  *   chat             - 채팅 조회+전송, 2→200 VU, 3분
  *   write            - 리뷰+채팅+즐겨찾기, 2→150 VU, 3분
@@ -28,8 +28,9 @@ import {
     getReviewKeywords,
     getHomePage,
     getFoodCategories,
-    getRestaurantListByLocation,
     getRestaurantDetail,
+    extractRestaurantIdsFromMainResponse,
+    pickRandomRestaurantId,
     getGroupDetail,
     getGroupReviews,
     getGroupMembers,
@@ -210,11 +211,11 @@ export function spikeMain(data) {
     const token = data.tokens[Math.floor(Math.random() * data.tokens.length)];
     const loc = randomLocation();
 
-    getHomePage(token);
+    const homeRes = getHomePage(token, loc.lat, loc.lon);
     getFoodCategories();
-    const listRes = getRestaurantListByLocation(token, loc.lat, loc.lon);
-    if (listRes.restaurantId) {
-        getRestaurantDetail(token, listRes.restaurantId);
+    const restaurantId = pickRandomRestaurantId(extractRestaurantIdsFromMainResponse(homeRes));
+    if (restaurantId) {
+        getRestaurantDetail(token, restaurantId);
     }
     sleep(0.5);
 }
