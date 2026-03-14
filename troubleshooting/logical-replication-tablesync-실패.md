@@ -5,6 +5,14 @@
 - `pg_subscription_rel`에서 모든 테이블이 `srsubstate = 'd'` (data copy) 상태로 멈춤
 - B(RDS) 테이블 카운트 전부 0건
 - A(publisher)에 `active = false`인 좀비 슬롯(`pg_*_sync_*`)이 계속 누적
+- 아래와 같은 로그 무한 반복
+```
+2026-03-12 06:33:09 UTC::@:[1334]:LOG:  background worker "logical replication tablesync worker" (PID 25175) exited with exit code 1
+2026-03-12 06:33:09 UTC::@:[25177]:LOG:  logical replication table synchronization worker for subscription "migration_sub", table "report" has started
+2026-03-12 06:33:09 UTC::@:[25176]:LOG:  could not drop replication slot "pg_22246_sync_20731_7541531472693019557" on publisher: ERROR:  replication slot "pg_22246_sync_20731_7541531472693019557" does not exist
+2026-03-12 06:33:09 UTC::@:[25176]:ERROR:  could not create replication slot "pg_22246_sync_20731_7541531472693019557": ERROR:  all replication slots are in use
+	HINT:  Free one or increase "max_replication_slots".
+```
 
 ## 오진 과정
 
