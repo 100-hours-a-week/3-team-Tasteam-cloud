@@ -75,18 +75,3 @@ resource "aws_security_group" "redis" {
     Environment = var.environment
   }
 }
-
-# Redis 인스턴스용 EIP
-resource "aws_eip" "redis" {
-  domain = "vpc"
-
-  tags = {
-    Name        = "development-eip-redis"
-    Environment = var.environment
-  }
-}
-
-resource "aws_eip_association" "redis" {
-  instance_id   = aws_instance.redis.id
-  allocation_id = aws_eip.redis.id
-}

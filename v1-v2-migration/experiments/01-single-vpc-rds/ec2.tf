@@ -23,21 +23,6 @@ resource "aws_instance" "source" {
   }
 }
 
-# SSH 접속용 EIP
-resource "aws_eip" "source" {
-  domain = "vpc"
-
-  tags = {
-    Name        = "migration-exp-eip-source"
-    Environment = var.environment
-  }
-}
-
-resource "aws_eip_association" "source" {
-  instance_id   = aws_instance.source.id
-  allocation_id = aws_eip.source.id
-}
-
 # ============================================================
 # 마이그레이션 오케스트레이터 EC2 — Ubuntu 22.04 + Docker
 # ============================================================
@@ -104,19 +89,4 @@ resource "aws_instance" "orchestrator" {
     volume_size = 20
     volume_type = "gp3"
   }
-}
-
-# 오케스트레이터 SSH 접속용 EIP
-resource "aws_eip" "orchestrator" {
-  domain = "vpc"
-
-  tags = {
-    Name        = "migration-exp-eip-orchestrator"
-    Environment = var.environment
-  }
-}
-
-resource "aws_eip_association" "orchestrator" {
-  instance_id   = aws_instance.orchestrator.id
-  allocation_id = aws_eip.orchestrator.id
 }

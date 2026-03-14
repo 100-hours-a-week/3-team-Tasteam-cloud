@@ -27,17 +27,3 @@ resource "aws_instance" "dev_single_instance" {
     volume_type = "gp3"
   }
 }
-
-resource "aws_eip" "main" {
-  domain = "vpc"
-
-  tags = {
-    Name        = "development-eip"
-    Environment = var.environment
-  }
-}
-
-resource "aws_eip_association" "main" {
-  instance_id   = aws_instance.dev_single_instance.id
-  allocation_id = aws_eip.main.id
-}
