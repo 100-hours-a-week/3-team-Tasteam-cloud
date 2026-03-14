@@ -2,7 +2,9 @@ import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { withQuickRunOptions } from '../../shared/quick-run.js';
 import {
-    extractRestaurantIdsFromMainResponse,
+    extractRestaurantIdsFromSectionsResponse,
+    getHomePage,
+    getMainPage,
     pickRandomRestaurantId,
     resolveGroupContext,
 } from '../../shared/scenarios.js';
@@ -33,6 +35,7 @@ export default function () {
     // 동적으로 추출할 ID들
     let restaurantId = null;
     let groupId = null;
+    let homeResponse = null;
 
     let reviewId = null;
     let keywordIds = []; // 리뷰 키워드 ID 목록
@@ -105,31 +108,43 @@ export default function () {
 
     // 2. 읽기 API 테스트
 
-    // 메인 페이지 진입
-    group('메인 페이지', function () {
-        const res = http.get(`${BASE_URL}/api/v1/main?latitude=37.395&longitude=127.11`, authParams);
+    // 통합 메인 API 최소 검증
+    group('메인 통합 API 최소 검증', function () {
+        const res = getMainPage(token, 37.395, 127.11);
         check(res, {
             '메인 페이지 조회 성공 (200)': (r) => r.status === 200,
         });
     });
 
-    // 메인 페이지에서 노출된 음식점 ID 추출
-    group('메인 노출 음식점 선택', function () {
-        const res = http.get(`${BASE_URL}/api/v1/main?latitude=37.395&longitude=127.11`, authParams);
+    // 홈 페이지 진입
+    group('홈 페이지', function () {
+        homeResponse = getHomePage(token, 37.395, 127.11);
+        check(homeResponse, {
+            '홈 페이지 조회 성공 (200)': (r) => r.status === 200,
+        });
+    });
+
+    // 홈 페이지에서 노출된 음식점 ID 추출
+    group('홈 노출 음식점 선택', function () {
+        const res = homeResponse;
+        if (!res) {
+            console.log('[홈 노출 음식점] 스킵 - 홈 응답 없음');
+            return;
+        }
         check(res, {
-            '메인 페이지 조회 성공 (200)': (r) => r.status === 200,
+            '홈 페이지 조회 성공 (200)': (r) => r.status === 200,
         });
 
         if (res.status === 200) {
             try {
-                restaurantId = pickRandomRestaurantId(extractRestaurantIdsFromMainResponse(res));
+                restaurantId = pickRandomRestaurantId(extractRestaurantIdsFromSectionsResponse(res));
                 if (restaurantId) {
-                    console.log(`[메인 노출 음식점] 선택된 음식점 ID: ${restaurantId}`);
+                    console.log(`[홈 노출 음식점] 선택된 음식점 ID: ${restaurantId}`);
                 } else {
-                    console.log('[메인 노출 음식점] 데이터 없음 - 단건 조회 스킵됨');
+                    console.log('[홈 노출 음식점] 데이터 없음 - 단건 조회 스킵됨');
                 }
             } catch (e) {
-                console.log(`[메인 노출 음식점] JSON 파싱 실패: ${e}`);
+                console.log(`[홈 노출 음식점] JSON 파싱 실패: ${e}`);
             }
         }
     });

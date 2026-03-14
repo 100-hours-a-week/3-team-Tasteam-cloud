@@ -29,7 +29,7 @@ import {
     getHomePage,
     getFoodCategories,
     getRestaurantDetail,
-    extractRestaurantIdsFromMainResponse,
+    extractRestaurantIdsFromSectionsResponse,
     pickRandomRestaurantId,
     getGroupDetail,
     getGroupReviews,
@@ -213,7 +213,7 @@ export function spikeMain(data) {
 
     const homeRes = getHomePage(token, loc.lat, loc.lon);
     getFoodCategories();
-    const restaurantId = pickRandomRestaurantId(extractRestaurantIdsFromMainResponse(homeRes));
+    const restaurantId = pickRandomRestaurantId(extractRestaurantIdsFromSectionsResponse(homeRes));
     if (restaurantId) {
         getRestaurantDetail(token, restaurantId);
     }

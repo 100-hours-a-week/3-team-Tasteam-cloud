@@ -31,7 +31,7 @@ import {
     pickSubgroupId,
     pickChatRoomId,
     pickRestaurantId,
-    extractRestaurantIdsFromMainResponse,
+    extractRestaurantIdsFromSectionsResponse,
     pickRandomRestaurantId,
     resolveGroupContext,
     resolveSubgroupChatContext,
@@ -397,7 +397,7 @@ export function spikeMain(data) {
     const state = buildState(data);
     const loc = randomLocation();
     const h = getHomePage(state.token, loc.lat, loc.lon);
-    const restaurantId = pickRandomRestaurantId(extractRestaurantIdsFromMainResponse(h));
+    const restaurantId = pickRandomRestaurantId(extractRestaurantIdsFromSectionsResponse(h));
     const detail = restaurantId ? getRestaurantDetail(state.token, restaurantId) : null;
     if (h && h.status === 200) readSuccess.add(1);
     if (detail && detail.status === 200) readSuccess.add(1);

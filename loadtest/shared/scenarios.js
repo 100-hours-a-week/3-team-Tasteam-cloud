@@ -323,7 +323,9 @@ export function getReviewKeywords(token) {
 // ============ Read Scenarios ============
 
 /**
- * 메인 페이지 조회
+ * 통합 메인 페이지 조회
+ * 주력 시나리오는 /api/v1/main/home을 사용하고,
+ * 이 호출은 통합 응답 호환성 검증 용도로만 유지한다.
  */
 export function getMainPage(token, lat = 37.395, lon = 127.11) {
     const res = http.get(
@@ -351,7 +353,7 @@ function collectRestaurantIdsFromItems(items, collector) {
     });
 }
 
-export function extractRestaurantIdsFromMainResponse(res) {
+export function extractRestaurantIdsFromSectionsResponse(res) {
     if (!res || res.status !== 200) {
         return [];
     }
@@ -570,14 +572,14 @@ export function createReview(token, groupId, keywordIds, restaurantId = null) {
 export function executeReadScenario(state) {
     let successCount = 0;
 
-    // 메인 페이지
+    // 홈 페이지
     const loc = randomLocation();
-    const resMain = getMainPage(state.token, loc.lat, loc.lon);
-    if (resMain && resMain.status === 200) successCount++;
+    const resHome = getHomePage(state.token, loc.lat, loc.lon);
+    if (resHome && resHome.status === 200) successCount++;
 
     let restaurantId = pickRestaurantId(
         state,
-        pickRandomRestaurantId(extractRestaurantIdsFromMainResponse(resMain)) || state.restaurantId
+        pickRandomRestaurantId(extractRestaurantIdsFromSectionsResponse(resHome)) || state.restaurantId
     );
 
     // 음식점 상세
@@ -724,8 +726,8 @@ function collectRestaurantIds(token, targetCount, rounds) {
         const loc = randomLocation();
         const keyword = SEARCH_KEYWORDS[i % SEARCH_KEYWORDS.length] || randomKeyword();
 
-        const mainRes = getMainPage(token, loc.lat, loc.lon);
-        extractRestaurantIdsFromMainResponse(mainRes).forEach((id) => ids.add(id));
+        const homeRes = getHomePage(token, loc.lat, loc.lon);
+        extractRestaurantIdsFromSectionsResponse(homeRes).forEach((id) => ids.add(id));
 
         const searchRes = http.post(
             `${BASE_URL}/api/v1/search?keyword=${encodeURIComponent(keyword)}&latitude=${loc.lat}&longitude=${loc.lon}&radiusKm=1`,
@@ -1412,7 +1414,7 @@ export function executeBrowsingJourney(state) {
         analyticsEvents.push(buildEvent('ui.page.viewed', { page: 'home' }));
     }
 
-    const homeRestaurantId = pickRandomRestaurantId(extractRestaurantIdsFromMainResponse(resHome));
+    const homeRestaurantId = pickRandomRestaurantId(extractRestaurantIdsFromSectionsResponse(resHome));
 
     // 2. 음식 카테고리
     const resCat = getFoodCategories();
