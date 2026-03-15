@@ -7,9 +7,9 @@ module "vpc" {
 
   environment          = var.environment
   vpc_cidr             = "10.11.0.0/16"
-  public_subnet_cidrs  = ["10.11.0.0/20", "10.11.16.0/20"]
-  private_subnet_cidrs = ["10.11.128.0/20", "10.11.144.0/20"]
-  availability_zones   = ["ap-northeast-2a", "ap-northeast-2c"]
+  public_subnet_cidrs  = ["10.11.0.0/20", "10.11.16.0/20", "10.11.32.0/20"]
+  private_subnet_cidrs = ["10.11.128.0/20", "10.11.144.0/20", "10.11.160.0/20"]
+  availability_zones   = ["ap-northeast-2a", "ap-northeast-2c", "ap-northeast-2b"]
 }
 
 # ──────────────────────────────────────────────
