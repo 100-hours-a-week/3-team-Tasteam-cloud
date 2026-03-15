@@ -1,6 +1,6 @@
 output "source_ec2_public_ip" {
   description = "소스 EC2 퍼블릭 IP (SSH 접속용)"
-  value       = aws_eip.source.public_ip
+  value       = aws_instance.source.public_ip
 }
 
 output "target_rds_endpoint" {
@@ -20,7 +20,7 @@ output "target_rds_port" {
 
 output "ssh_command" {
   description = "소스 EC2 SSH 접속 명령어"
-  value       = "ssh -i ~/.ssh/${var.key_name}.pem ubuntu@${aws_eip.source.public_ip}"
+  value       = "ssh -i ~/.ssh/${var.key_name}.pem ubuntu@${aws_instance.source.public_ip}"
 }
 
 output "psql_to_rds_command" {
@@ -32,12 +32,12 @@ output "psql_to_rds_command" {
 
 output "orchestrator_public_ip" {
   description = "오케스트레이터 EC2 퍼블릭 IP"
-  value       = aws_eip.orchestrator.public_ip
+  value       = aws_instance.orchestrator.public_ip
 }
 
 output "orchestrator_ssh_command" {
   description = "오케스트레이터 EC2 SSH 접속 명령어"
-  value       = "ssh -i ~/.ssh/${var.key_name}.pem ubuntu@${aws_eip.orchestrator.public_ip}"
+  value       = "ssh -i ~/.ssh/${var.key_name}.pem ubuntu@${aws_instance.orchestrator.public_ip}"
 }
 
 output "orchestrator_psql_to_rds_command" {
