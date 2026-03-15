@@ -75,6 +75,11 @@ output "cloud_map_service_dns" {
   value       = module.cloud_map.dns_name
 }
 
+output "k8s_backup_bucket_name" {
+  description = "Prod kubeadm backup S3 bucket name"
+  value       = aws_s3_bucket.k8s_backup.bucket
+}
+
 output "uploads_bucket_name" {
   description = "Prod uploads S3 bucket name"
   value       = aws_s3_bucket.uploads.bucket
