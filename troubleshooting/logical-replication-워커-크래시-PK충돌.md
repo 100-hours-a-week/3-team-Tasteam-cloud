@@ -82,3 +82,62 @@ CREATE SUBSCRIPTION migration_sub
 - setval은 **B에서만** 실행할 것 — A에서도 실행하면 양쪽 시퀀스가 같아져서 갭 무효화
 - k6 반복 실행 시 매번 setval을 다시 해야 하는 게 아니라, **실험 전체를 리셋**하고 처음부터 다시 해야 함 → 재실험 체크리스트 필요성
 - 시퀀스는 DELETE로 감소하지 않음 — 데이터를 지워도 시퀀스는 전진만 함
+
+---
+
+# 2차 발생 — review_keyword PK 충돌 (3/14)
+
+## 증상
+- 1차 해결 후 갭을 +1000으로 줄여서 재실험
+- 컷오버 후 k6 에러율이 ~30%로 급증, **5분간 지속**
+- B(RDS) 앱 로그:
+  ```
+  [ERROR] duplicate key value violates unique constraint "review_keyword_pkey"
+    Detail: Key (id)=(2303) already exists.
+    SQL: insert into review_keyword (keyword_id,review_id) values (?,?)
+  ```
+- 에러율 30% = k6의 쓰기 비율(30%)과 정확히 일치 → **리뷰 쓰기 전량 실패, 검색은 정상**
+- 복제 워커 크래시(1차)와 달리, **앱 레벨에서의 INSERT 실패**
+
+## 1차와의 차이점
+
+| | 1차 (3/12) | 2차 (3/14) |
+|---|---|---|
+| 충돌 테이블 | user_activity_source_outbox | review_keyword |
+| 갭 설정 | +1000 (1회만, k6 여러 번) | +1000 (직전 설정, k6 1회) |
+| 실패 주체 | 복제 워커 (무한 크래시 루프) | B 앱 (INSERT 실패 → 500 응답) |
+| 원인 | k6 반복으로 갭 누적 소진 | setval~컷오버 사이 복제가 갭 잠식 |
+
+## 근본 원인
+
+**setval(Phase 3)과 컷오버(Phase 4-3) 사이에 k6가 A에 쓰기 → A에서 생성된 review_keyword가 B로 복제 → 갭 소진**
+
+시간순:
+1. **Phase 3**: `setval('review_keyword_id_seq', max(id) + 1000)` — 예: max=1300 → seq=2300
+2. **Phase 4-2**: k6 시작 → A에 리뷰 요청 → A가 review_keyword INSERT (id: 1301, 1302, ...)
+3. A의 review_keyword가 B로 **실시간 복제** → B에 id 1301~2300+ 유입
+4. **Phase 4-3**: 컷오버 → B 앱이 직접 INSERT → 시퀀스 2301부터 → 이미 존재하는 id와 충돌
+
+### 갭 소진 계산
+- k6 설정: 30 VU, iter rate ~5.8/s, 쓰기 30% → ~1.7 리뷰/초 ≈ ~100건/분
+- 리뷰 1건당 review_keyword 1건 생성 → review_keyword도 ~100건/분
+- setval → 컷오버 사이 꾸물거린 시간: 10분+ → 1000건 갭 소진
+
+## 해결 방향
+
+### A안: setval을 컷오버 직전으로 이동
+- Phase 순서 변경: k6 시작(4-2) → setval → 컷오버(4-3)
+- setval~컷오버 사이를 수 초로 단축 → 갭 1000으로도 충분
+- 장점: 갭 크기를 최소화하면서 안전
+
+### B안: 갭을 충분히 키우기
+- setval 시점은 그대로, 갭을 10000+ 이상
+- 장점: 절차 변경 없음
+- 단점: "적정 갭"에 대한 실증 불가
+
+## 교훈
+- 시퀀스 갭은 **"컷오버 순간 동시 쓰기량"이 아니라 "setval~컷오버 사이 A에서 복제되는 총량"** 기준
+- 에러율이 k6 시나리오의 읽기/쓰기 비율과 정확히 일치하면, 쓰기 경로만 실패한 것
+
+## 해결
+- 시퀀스 갭 부여한 직후 컷오버 실행하니 문제 해결
