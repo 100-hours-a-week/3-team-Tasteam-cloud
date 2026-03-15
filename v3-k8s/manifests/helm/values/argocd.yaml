@@ -1,0 +1,114 @@
+# ============================================================
+# ArgoCD Helm Values — kubeadm 환경 맞춤
+# ============================================================
+# 설치: helm install argocd argo/argo-cd -n argocd -f argocd.yaml
+# 차트: https://github.com/argoproj/argo-helm/tree/main/charts/argo-cd
+# ============================================================
+
+global:
+  # kubeadm 클러스터는 도메인 기반 접근
+  domain: argocd.tasteam.kr
+
+# ── Server ──
+server:
+  replicas: 1
+
+  # kubeadm에서는 NodePort + NLB로 접근
+  # NGINX Ingress 뒤에 두는 방식도 가능하지만, ArgoCD 자체 Ingress를 분리
+  service:
+    type: ClusterIP
+
+  # ArgoCD UI Ingress (NGINX Ingress Controller 사용)
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hostname: argocd.tasteam.kr
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    tls: true
+
+  # 리소스 — 소규모 클러스터에 맞춤
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Argo 서버 추가 설정
+  extraArgs:
+    - --insecure  # Cloudflare가 TLS 종단하므로 내부는 HTTP (선택적)
+
+# ── Repo Server ──
+repoServer:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 512Mi
+
+# ── Application Controller ──
+controller:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Git 폴링 주기 (기본 3분 → dev 환경에서는 더 짧게 가능)
+  args:
+    appResyncPeriod: "180"      # 3분
+    repoServerTimeoutSeconds: "60"
+
+# ── Redis (ArgoCD 내부 캐시) ──
+redis:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ── Notifications ──
+notifications:
+  enabled: true
+  # Discord webhook 연동은 Secret으로 관리
+  # argocd-notifications-secret에 discord-webhook-url 키로 저장
+
+# ── Configs ──
+configs:
+  # 리포지토리 연결 — cloud-repo
+  repositories:
+    tasteam-cloud:
+      url: https://github.com/100-hours-a-week/3-team-Tasteam-cloud.git
+      # Private repo인 경우 아래 주석 해제
+      # password: <GitHub PAT — External Secret으로 관리>
+      # username: <GitHub username>
+      type: git
+
+  # 리소스 커스터마이징 — HPA status 차이 무시
+  resourceCustomizations: |
+    autoscaling/HorizontalPodAutoscaler:
+      health.lua: |
+        hs = {}
+        hs.status = "Healthy"
+        hs.message = ""
+        if obj.status ~= nil then
+          if obj.status.currentReplicas ~= nil then
+            hs.message = "Current replicas: " .. obj.status.currentReplicas
+          end
+        end
+        return hs
+
+  params:
+    # UI 관련
+    server.insecure: "true"  # Cloudflare 뒤에서 HTTP 사용 시

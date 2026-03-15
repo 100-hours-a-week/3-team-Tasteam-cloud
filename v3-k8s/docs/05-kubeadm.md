@@ -738,7 +738,7 @@ spec:
 | 리소스 | 용도 | 소스 |
 |--------|------|------|
 | ConfigMap | 환경 설정 (프로필, 외부 URL 등) | Git 관리 |
-| Secret | 민감 정보 (DB 비밀번호, API 키 등) | Sealed Secrets로 암호화하여 Git 관리 (7.5 참조) |
+| Secret | 민감 정보 (DB 비밀번호, API 키 등) | External Secrets Operator로 AWS Parameter Store에서 동기화 (7.5 참조) |
 
 ### 5.8 배포 실패 시 자동 보호 및 롤백
 
@@ -892,7 +892,7 @@ spec:
 | 대상 | 관리 방식 | 이유 |
 |------|-----------|------|
 | 애플리케이션 (Spring, FastAPI) | 순수 YAML | 직접 작성하여 구조를 이해하고, 환경별 차이를 명확하게 관리 |
-| 외부 스택 (NGINX Ingress, ArgoCD, Sealed Secrets) | Helm Chart | 복잡한 외부 도구를 안정적으로 설치·관리 |
+| 외부 스택 (NGINX Ingress, ArgoCD, External Secrets Operator) | Helm Chart | 복잡한 외부 도구를 안정적으로 설치·관리 |
 
 ### 7.2 환경 격리 방식
 
@@ -931,7 +931,7 @@ v3-k8s/
       values/
         alb-controller.yaml
         argocd.yaml
-        sealed-secrets.yaml
+        external-secrets.yaml
   argocd/                     # ArgoCD Application 정의
     app-dev.yaml
     app-stg.yaml
@@ -1056,81 +1056,92 @@ dev Application에서는 `syncPolicy`에 아래를 추가합니다:
 
 GitOps에서는 모든 리소스를 Git에 저장하는 것이 원칙이지만, Secret(DB 비밀번호, API 키 등)은 평문으로 Git에 커밋할 수 없습니다.
 
-#### 7.5.2 방식: Sealed Secrets
+#### 7.5.2 방식: External Secrets Operator + AWS Parameter Store
 
-Sealed Secrets(Bitnami)를 사용하여 Secret을 암호화된 형태로 Git에 저장합니다.
+External Secrets Operator(ESO)를 사용하여 AWS Systems Manager Parameter Store에 저장된 시크릿을 Kubernetes Secret으로 자동 동기화합니다.
+기존 v2에서 사용하던 Parameter Store 값을 그대로 활용하므로, 개발자가 새로운 시크릿 등록 방법을 익힐 필요가 없습니다.
 
 ```
-[암호화 흐름]
-1. 클러스터에 Sealed Secrets Controller 설치 (복호화 키 보유)
-2. 로컬에서 kubeseal CLI로 Secret을 암호화 → SealedSecret 리소스 생성
-3. SealedSecret을 Git에 커밋 (암호화된 상태이므로 안전)
-4. ArgoCD가 SealedSecret을 클러스터에 배포
-5. Sealed Secrets Controller가 복호화 → 실제 Secret 리소스 생성
-```
-
-```bash
-# 암호화 예시
-kubectl create secret generic db-credentials \
-  --from-literal=password=my-secret-pw \
-  --dry-run=client -o yaml | \
-  kubeseal --format yaml > sealed-db-credentials.yaml
+[동기화 흐름]
+1. 클러스터에 External Secrets Operator 설치
+2. 노드 IAM Role에 SSM 읽기 권한 부여 (기존 인스턴스 프로파일 활용)
+3. ClusterSecretStore 리소스 생성 (AWS SSM Parameter Store 연결)
+4. ExternalSecret 리소스를 Git에 커밋 (어떤 파라미터를 가져올지 선언)
+5. ESO가 ExternalSecret을 감시 → Parameter Store에서 값을 가져와 실제 K8s Secret 생성
+6. Secret 값이 Parameter Store에서 변경되면 ESO가 자동으로 갱신
 ```
 
 ```yaml
-# sealed-db-credentials.yaml (Git에 커밋 가능)
-apiVersion: bitnami.com/v1alpha1
-kind: SealedSecret
+# cluster-secret-store.yaml — Parameter Store 연결 설정
+apiVersion: external-secrets.io/v1beta1
+kind: ClusterSecretStore
 metadata:
-  name: db-credentials
-  namespace: app-prod
+  name: aws-parameter-store
 spec:
-  encryptedData:
-    password: AgBy3i4OJSWK+PiTySYZZA9rO...  # 암호화된 값
+  provider:
+    aws:
+      service: ParameterStore
+      region: ap-northeast-2
+      auth:
+        jwt:
+          serviceAccountRef:
+            name: external-secrets-sa
+            namespace: external-secrets
 ```
 
-#### 7.5.3 Sealed Secrets 선택 이유
+```yaml
+# spring-boot-external-secret.yaml (Git에 커밋 — 민감값 없음)
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: spring-boot-runtime
+  namespace: app-prod
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-parameter-store
+    kind: ClusterSecretStore
+  target:
+    name: spring-boot-runtime
+    creationPolicy: Owner
+  dataFrom:
+    - extract:
+        key: /prod/tasteam/backend
+```
+
+#### 7.5.3 External Secrets Operator 선택 이유
 
 | 방식 | 장점 | 단점 | 판정 |
 |------|------|------|------|
-| AWS SSM + ExternalSecrets | AWS 네이티브, Secret 중앙 관리 | ExternalSecrets Operator 추가 설치, AWS IAM 연동 필요 | 후보 |
+| Sealed Secrets | Git 단일 관리, 추가 인프라 불필요 | Secret 갱신 시 재암호화, 새 CLI 학습 필요 | 제외 |
 | HashiCorp Vault | 강력한 접근 제어, 동적 시크릿 | 별도 Vault 클러스터 운영 필요, 과도한 복잡도 | 제외 |
-| **Sealed Secrets** | **Git 단일 관리, 추가 인프라 불필요, 단순함** | **Secret 갱신 시 재암호화 필요** | **선택** |
+| **AWS SSM + ESO** | **기존 Parameter Store 그대로 활용, 개발자 학습 비용 없음, 자동 갱신** | **ESO 설치 필요, IAM 권한 필요** | **선택** |
 
-- 현재 팀 규모(6인, 클라우드 2인)에서 Vault는 운영 부담이 과도함
-- Sealed Secrets는 Git에 모든 것을 저장한다는 GitOps 원칙과 가장 잘 부합
-- Secret 갱신이 빈번하지 않으므로 재암호화 비용이 낮음
+- v2에서 이미 AWS Parameter Store에 시크릿을 관리 중이므로, 기존 워크플로우를 유지할 수 있음
+- 개발자가 AWS Console 또는 CLI로 Parameter Store에 값을 등록하면 ESO가 자동으로 K8s Secret에 반영
+- Sealed Secrets는 `kubeseal` CLI 학습과 재암호화 워크플로우가 추가되어, 다른 개발자들의 학습 비용이 증가
+- Secret 갱신 시 ESO가 `refreshInterval`에 따라 자동 갱신하므로 수동 재암호화가 불필요
 
-#### 7.5.4 Sealed Secrets 복호화 키 백업
+#### 7.5.4 IAM 권한 설정
 
-Sealed Secrets Controller는 설치 시 암호화/복호화용 개인키(private key)를 생성하여 `kube-system` namespace의 Secret으로 저장합니다.
-이 키가 유실되면 Git에 저장된 모든 SealedSecret을 복호화할 수 없으므로, **클러스터 구축 직후 반드시 백업**해야 합니다.
+ESO가 Parameter Store에 접근하려면 노드의 IAM Role에 다음 권한이 필요합니다.
+이미 v2에서 사용 중인 인스턴스 프로파일에 포함되어 있으므로 추가 설정은 최소화됩니다.
 
-```bash
-# 개인키 백업
-kubectl get secret -n kube-system \
-  -l sealedsecrets.bitnami.com/sealed-secrets-key \
-  -o yaml > sealed-secrets-key-backup.yaml
-
-# 안전한 외부 저장소에 보관
-aws s3 cp sealed-secrets-key-backup.yaml \
-  s3://<백업 버킷>/sealed-secrets/sealed-secrets-key-backup.yaml \
-  --sse aws:kms
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "ssm:GetParameter",
+    "ssm:GetParameters",
+    "ssm:GetParametersByPath"
+  ],
+  "Resource": [
+    "arn:aws:ssm:ap-northeast-2:<ACCOUNT_ID>:parameter/prod/tasteam/*"
+  ]
+}
 ```
 
-**클러스터 재구축 시 복원 절차:**
-
-```bash
-# 1. 백업된 키를 먼저 복원 (컨트롤러 설치 전에 수행)
-kubectl apply -f sealed-secrets-key-backup.yaml
-
-# 2. Sealed Secrets Controller 설치
-helm install sealed-secrets sealed-secrets/sealed-secrets -n kube-system
-
-# 3. 컨트롤러가 기존 키를 인식 → Git의 SealedSecret들이 정상 복호화됨
-```
-
-> **키 유실 시**: 모든 Secret의 평문 원본을 확보하여 새 키로 재암호화해야 합니다. 평문 원본도 없으면 DB 비밀번호, API 키 등을 전부 재발급해야 합니다.
+> **클러스터 재구축 시**: ESO를 재설치하고 ClusterSecretStore를 다시 적용하면, ExternalSecret이 Parameter Store에서 값을 자동으로 다시 가져옵니다. 별도의 키 백업/복원이 필요 없습니다.
 
 ---
 

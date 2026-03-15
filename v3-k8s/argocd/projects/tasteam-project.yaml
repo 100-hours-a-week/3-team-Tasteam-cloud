@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: tasteam
+  namespace: argocd
+spec:
+  description: "Tasteam 서비스 배포 프로젝트"
+
+  # 소스 저장소 제한 — cloud-repo만 허용
+  sourceRepos:
+    - "https://github.com/100-hours-a-week/3-team-Tasteam-cloud.git"
+
+  # 배포 대상 제한 — 허용된 namespace만
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: app-prod
+    - server: https://kubernetes.default.svc
+      namespace: app-stg
+    - server: https://kubernetes.default.svc
+      namespace: app-dev
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+
+  # 클러스터 리소스 허용 범위
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+
+  # namespace 리소스 허용 범위
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: "*"
+    - group: apps
+      kind: "*"
+    - group: autoscaling
+      kind: "*"
+    - group: networking.k8s.io
+      kind: "*"
+    - group: policy
+      kind: "*"
+    - group: external-secrets.io
+      kind: ExternalSecret
+    - group: external-secrets.io
+      kind: ClusterSecretStore
+
+  # 위험한 리소스 차단
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange

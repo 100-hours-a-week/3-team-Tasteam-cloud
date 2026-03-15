@@ -63,7 +63,7 @@
 | public ingress NLB SG | `prod-sg-k8s-ingress-nlb` |
 | node IAM role | `prod-k8s-node-role` |
 | node IAM profile | `prod-k8s-node-instance-profile` |
-| etcd / sealed-secret backup prefix | `s3://<BACKUP_BUCKET>/k8s/prod/` |
+| etcd backup prefix | `s3://<BACKUP_BUCKET>/k8s/prod/` |
 
 ## 4. 실행 위치 약속
 
@@ -144,7 +144,6 @@ aws sts get-caller-identity
 aws s3 ls "s3://${BACKUP_BUCKET}" || true
 
 brew install helm jq yq kubectx || true
-brew install kubeseal || true
 ```
 
 - 기대 결과:
@@ -573,7 +572,7 @@ echo "$CERT_KEY" | tee /root/certificate-key.txt
 echo "Track A worker join command:"
 cat /root/join-worker.sh
 
-# 로컬 kubectl / kubeseal 을 쓸 계획이면 admin.conf 내용을 안전한 로컬 파일로 복사해둔다.
+# 로컬 kubectl 을 쓸 계획이면 admin.conf 내용을 안전한 로컬 파일로 복사해둔다.
 sudo cat /etc/kubernetes/admin.conf
 
 # 로컬 작업 PC에서 API target health 재확인
@@ -806,67 +805,67 @@ kubectl rollout status statefulset/argocd-application-controller -n argocd --tim
 kubectl delete namespace argocd
 ```
 
-### Step 3-8. Sealed Secrets 설치
+### Step 3-8. External Secrets Operator 설치
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
-- 목적: `app-prod` 민감값을 Git/파일 기반으로 안전하게 다루기 위한 복호화 컨트롤러를 설치한다.
+- 목적: AWS Parameter Store 에 저장된 민감값을 K8s Secret 으로 자동 동기화하는 ESO 를 설치한다.
 - 명령어:
 
 ```bash
-helm repo add sealed-secrets https://bitnami-labs.github.io/sealed-secrets
+helm repo add external-secrets https://charts.external-secrets.io
 helm repo update
 
-helm upgrade --install sealed-secrets sealed-secrets/sealed-secrets \
-  -n kube-system
+kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
 
-kubectl rollout status deployment/sealed-secrets -n kube-system --timeout=5m
-kubectl get deployment sealed-secrets -n kube-system
+helm upgrade --install external-secrets external-secrets/external-secrets \
+  -n external-secrets \
+  --set installCRDs=true
+
+kubectl rollout status deployment/external-secrets -n external-secrets --timeout=5m
+kubectl get deployment -n external-secrets
 ```
 
 - 기대 결과:
-  - controller pod `Running`
+  - `external-secrets` namespace 에 controller pod `Running`
 - 실패 징후:
   - deployment 가 생성되지 않음
+  - CRD 설치 실패
 - 롤백 / 정리:
-  - `helm uninstall sealed-secrets -n kube-system`
+  - `helm uninstall external-secrets -n external-secrets`
+  - `kubectl delete namespace external-secrets`
 
-### Step 3-8-1. `cp-2a` 에서 `kubeseal` 실행 준비
+### Step 3-8-1. ClusterSecretStore 생성
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
-- 목적: Phase 4 Sealed Secret 생성을 `cp-2a` 에서 기본 경로로 처리할 수 있게 한다.
+- 목적: ESO 가 AWS Parameter Store 에 접근할 수 있도록 ClusterSecretStore 를 생성한다.
+- 전제: 노드 IAM Role 에 `ssm:GetParameter*` 권한이 이미 포함되어 있다 (Step 1-2 IAM 정책 참고).
 - 명령어:
 
 ```bash
-KUBESEAL_VERSION=$(
-  curl -fsSL https://api.github.com/repos/bitnami-labs/sealed-secrets/tags \
-    | grep -m1 -o '"name": "v[^"]*"' \
-    | cut -d'"' -f4 \
-    | sed 's/^v//'
-)
-
-curl -fsSLo /tmp/kubeseal.tar.gz \
-  "https://github.com/bitnami-labs/sealed-secrets/releases/download/v${KUBESEAL_VERSION}/kubeseal-${KUBESEAL_VERSION}-linux-amd64.tar.gz"
-tar -xzf /tmp/kubeseal.tar.gz -C /tmp kubeseal
-sudo install -m 0755 /tmp/kubeseal /usr/local/bin/kubeseal
-
 export KUBECONFIG=$HOME/.kube/config
-kubeseal --version
-kubeseal --fetch-cert \
-  --controller-name=sealed-secrets \
-  --controller-namespace=kube-system > "$HOME/sealed-secrets-prod.pem"
+
+cat <<'EOF' | kubectl apply -f -
+apiVersion: external-secrets.io/v1beta1
+kind: ClusterSecretStore
+metadata:
+  name: aws-parameter-store
+spec:
+  provider:
+    aws:
+      service: ParameterStore
+      region: ap-northeast-2
+EOF
+
+kubectl get clustersecretstore aws-parameter-store
 ```
 
 - 기대 결과:
-  - `kubeseal` CLI 가 `cp-2a` 에 설치된다.
-  - `sealed-secrets-prod.pem` 생성
+  - ClusterSecretStore `aws-parameter-store` 가 `Valid` 상태
 - 실패 징후:
-  - GitHub release 다운로드 실패
-  - `kubeseal --fetch-cert` 실패
+  - IAM 권한 부족으로 `SecretStore is not ready`
+  - ESO controller 가 아직 Running 이 아닌 경우
 - 롤백 / 정리:
-  - `sudo rm -f /usr/local/bin/kubeseal "$HOME/sealed-secrets-prod.pem"` 후 kubeconfig / API endpoint / controller 상태를 점검한다.
-
-- 비고:
-  - 로컬 작업 PC 에서 `kubeseal` 을 계속 쓰고 싶다면 Phase 0 의 `brew install kubeseal` 과 Step 3-1 의 `admin.conf` 복사 경로를 사용한다.
+  - `kubectl delete clustersecretstore aws-parameter-store` 후 IAM 권한 / ESO 상태를 점검한다.
 
 ### Step 3-8-2. Track A addon 상태 / 버전 캡처
 
@@ -881,32 +880,25 @@ kubectl get deployment,statefulset -A \
   -o custom-columns='NAMESPACE:.metadata.namespace,KIND:.kind,NAME:.metadata.name,IMAGES:.spec.template.spec.containers[*].image' \
   | tee /root/track-a-addon-images.txt
 
-kubeseal --version | tee /root/track-a-kubeseal-version.txt
+kubectl get clustersecretstore -o yaml | tee /root/track-a-eso-config.txt
 ```
 
 - 기대 결과:
-  - Helm release 목록, 핵심 addon 이미지 목록, `kubeseal` 버전이 파일로 남는다.
+  - Helm release 목록, 핵심 addon 이미지 목록, ESO ClusterSecretStore 설정이 파일로 남는다.
 - 실패 징후:
   - `helm list -A` 실패
   - 이미지 목록 추출 실패
 - 롤백 / 정리:
-  - `/root/track-a-helm-releases.txt`, `/root/track-a-addon-images.txt`, `/root/track-a-kubeseal-version.txt` 를 삭제하고 다시 캡처한다.
+  - `/root/track-a-helm-releases.txt`, `/root/track-a-addon-images.txt`, `/root/track-a-eso-config.txt` 를 삭제하고 다시 캡처한다.
 
 ### Step 3-9. 초기 백업
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
-- 목적: Track A 직후 Sealed Secrets 키와 etcd snapshot 을 백업한다.
+- 목적: Track A 직후 etcd snapshot 을 백업한다.
+- 비고: ESO 는 Parameter Store 에서 값을 동기화하므로 별도 키 백업이 불필요하다. etcd 만 백업한다.
 - 명령어:
 
 ```bash
-kubectl get secret -n kube-system \
-  -l sealedsecrets.bitnami.com/sealed-secrets-key \
-  -o yaml > /tmp/sealed-secrets-key-backup.yaml
-
-aws s3 cp /tmp/sealed-secrets-key-backup.yaml \
-  "s3://${BACKUP_BUCKET}/k8s/prod/sealed-secrets/sealed-secrets-key-backup.yaml" \
-  --sse aws:kms
-
 sudo ETCDCTL_API=3 etcdctl snapshot save /tmp/etcd-track-a.db \
   --endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/kubernetes/pki/etcd/ca.crt \
@@ -920,12 +912,12 @@ aws s3 cp /tmp/etcd-track-a.db \
 ```
 
 - 기대 결과:
-  - sealed secret key 와 etcd snapshot 이 S3 에 저장된다.
+  - etcd snapshot 이 S3 에 저장된다.
 - 실패 징후:
   - S3 업로드 실패
   - etcdctl TLS 오류
 - 롤백 / 정리:
-  - 백업이 하나라도 실패하면 Track A 완료로 간주하지 않는다.
+  - 백업이 실패하면 Track A 완료로 간주하지 않는다.
 
 ## Phase 4. `app-prod` 배포
 
@@ -997,10 +989,10 @@ EOF
 - 롤백 / 정리:
   - 기존 env 파일을 삭제하고 다시 추출한다.
 
-### Step 4-3. Sealed Secret / ConfigMap 생성
+### Step 4-3. ExternalSecret / ConfigMap 생성
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
-- 목적: 민감값은 Sealed Secret, 비민감 운영값은 ConfigMap 으로 생성한다.
+- 목적: 민감값은 ExternalSecret (Parameter Store 동기화), 비민감 운영값은 ConfigMap 으로 생성한다.
 - 명령어:
 
 ```bash
@@ -1012,34 +1004,51 @@ kubectl create configmap app-prod-config \
   --from-env-file=app-prod-config.env \
   --dry-run=client -o yaml > 10-app-prod-configmap.yaml
 
-kubectl create secret generic spring-boot-runtime \
-  -n app-prod \
-  --from-env-file=backend-runtime.env \
-  --dry-run=client -o yaml \
-  | kubeseal \
-      --controller-name=sealed-secrets \
-      --controller-namespace=kube-system \
-      --format yaml > 20-spring-boot-runtime.sealed.yaml
+cat <<'EOF' > 20-spring-boot-runtime-es.yaml
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: spring-boot-runtime
+  namespace: app-prod
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-parameter-store
+    kind: ClusterSecretStore
+  target:
+    name: spring-boot-runtime
+    creationPolicy: Owner
+  dataFrom:
+    - extract:
+        key: /prod/tasteam/backend
+EOF
 
-kubectl create secret generic fastapi-runtime \
-  -n app-prod \
-  --from-env-file=fastapi-runtime.env \
-  --dry-run=client -o yaml \
-  | kubeseal \
-      --controller-name=sealed-secrets \
-      --controller-namespace=kube-system \
-      --format yaml > 21-fastapi-runtime.sealed.yaml
+cat <<'EOF' > 21-fastapi-runtime-es.yaml
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: fastapi-runtime
+  namespace: app-prod
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-parameter-store
+    kind: ClusterSecretStore
+  target:
+    name: fastapi-runtime
+    creationPolicy: Owner
+  dataFrom:
+    - extract:
+        key: /prod/tasteam/fastapi
+EOF
 ```
 
 - 기대 결과:
-  - ConfigMap 1개, SealedSecret 2개 YAML 생성
+  - ConfigMap 1개, ExternalSecret 2개 YAML 생성
 - 실패 징후:
-  - `kubeseal` controller 연결 실패
+  - YAML 문법 오류
 - 롤백 / 정리:
   - 생성된 YAML 파일을 삭제하고 다시 만든다.
-
-- 비고:
-  - 로컬 작업 PC 에서 수행하려면 Step 3-8-1 의 비고대로 `kubeseal` 과 `KUBECONFIG` 를 준비한 뒤 동일 명령을 사용한다.
 
 ### Step 4-4. `app-prod` 워크로드 YAML 작성
 
@@ -1309,8 +1318,8 @@ grep -n 'image:' 30-app-prod-workloads.yaml
 cd "$HOME/tasteam-k8s/app-prod"
 
 kubectl apply -f 10-app-prod-configmap.yaml
-kubectl apply -f 20-spring-boot-runtime.sealed.yaml
-kubectl apply -f 21-fastapi-runtime.sealed.yaml
+kubectl apply -f 20-spring-boot-runtime-es.yaml
+kubectl apply -f 21-fastapi-runtime-es.yaml
 kubectl apply -f 30-app-prod-workloads.yaml
 
 kubectl rollout status deployment/spring-boot -n app-prod --timeout=10m
@@ -1331,8 +1340,8 @@ kubectl get hpa -n app-prod
 
 ```bash
 kubectl delete -f 30-app-prod-workloads.yaml
-kubectl delete -f 21-fastapi-runtime.sealed.yaml
-kubectl delete -f 20-spring-boot-runtime.sealed.yaml
+kubectl delete -f 21-fastapi-runtime-es.yaml
+kubectl delete -f 20-spring-boot-runtime-es.yaml
 kubectl delete -f 10-app-prod-configmap.yaml
 ```
 
@@ -1670,13 +1679,13 @@ aws s3 cp /tmp/etcd-verify.db \
 - `kubectl get nodes` 가 `cp1 + worker2` 모두 `Ready`
 - API NLB target group 이 `healthy`
 - ingress NLB `30080/30443` target group 이 `healthy`
-- Calico / Metrics Server / ingress-nginx / Linkerd / ArgoCD / Sealed Secrets 모두 정상
+- Calico / Metrics Server / ingress-nginx / Linkerd / ArgoCD / External Secrets Operator 모두 정상
 - `app-prod` Spring/FastAPI health check 성공
 - DB `5432`, Redis `6379` reachability 확인
 - `/api`, `/ai` ingress 라우팅 성공
 - `/ws` handshake 또는 비-5xx 응답 확인
 - HPA 메트릭 조회 성공
-- Sealed Secrets key / etcd snapshot 백업 성공
+- etcd snapshot 백업 성공
 
 ### Track B 완료 기준
 
@@ -1693,7 +1702,7 @@ aws s3 cp /tmp/etcd-verify.db \
 - v2 `tasteam.kr` 실트래픽 절체
 - shared monitoring stack 이전
 - `app-dev`, `app-stg` namespace 운영화
-- IRSA / External Secrets / Cluster Autoscaler / monitoring PVC 고도화
+- IRSA / Cluster Autoscaler / monitoring PVC 고도화
 
 ## 7. 부록: 자주 막히는 포인트
 
@@ -1713,4 +1722,4 @@ aws s3 cp /tmp/etcd-verify.db \
 - Metrics Server 문서: <https://github.com/kubernetes-sigs/metrics-server>
 - Linkerd 설치 문서: <https://linkerd.io/2-edge/getting-started/>
 - ArgoCD 설치 문서: <https://argo-cd.readthedocs.io/en/stable/getting_started/>
-- Sealed Secrets 문서: <https://github.com/bitnami-labs/sealed-secrets>
+- External Secrets Operator 문서: <https://external-secrets.io/>
