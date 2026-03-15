@@ -1,0 +1,1716 @@
+# kubeadm Prod VPC Runbook
+
+## 0. 문서 목적
+
+- 이 문서는 `prod-vpc-main (10.11.0.0/16)` 위에 **기존 v2 인프라를 유지한 채** 병렬 kubeadm 클러스터를 올리고, `app-prod` 를 배포/검증하기 위한 실행 런북이다.
+- 설계 기준 문서는 `v3-k8s/docs/05-kubeadm.md` 이다.
+- 이번 범위는 다음 두 트랙을 한 문서에서 다룬다.
+  - **Track A**: `cp1 + worker2` 리허설 클러스터
+  - **Track B**: `cp3 + worker4` 운영형 확장
+- 이번 범위에서 하지 않는 것:
+  - Cloudflare origin 최종 절체
+  - v2 `asg_spring` / `ec2_caddy` / 현재 RDS/Redis 교체
+  - 모니터링 스택 이전
+  - `app-dev`, `app-stg` 온보딩
+
+## 1. Source of Truth / 전제
+
+- Source of truth: `v3-k8s/docs/05-kubeadm.md`
+- 예전 ALB 기반 설계 문서는 **과거 결정**으로만 취급한다. 이번 실행 경로는 `public NLB -> ingress-nginx NodePort -> ClusterIP` 로 고정한다.
+- 노드 OS는 Ubuntu LTS, 컨테이너 런타임은 `containerd`, Kubernetes minor 는 `v1.34.x` 로 고정한다.
+- Pod CIDR 은 `10.244.0.0/16`, Service CIDR 은 `10.96.0.0/12` 로 고정한다.
+- 상태 저장 계층은 이번 런북에서 클러스터 외부를 유지한다.
+  - Spring Boot -> 현재 prod RDS / Redis
+  - FastAPI -> 현재 prod DB URL 또는 별도 AI DB URL
+- Spring/FastAPI 이미지가 모두 pull 가능한 상태여야 한다.
+  - Spring Boot ECR URL 은 `shared` Terraform output 으로 확인한다.
+  - FastAPI 이미지 레지스트리는 AI 레포 CI 기준 값을 사전에 확보한다. 없다면 Phase 4 진입 전 먼저 준비한다.
+- 노드 루트 볼륨은 `50GB gp3` 를 최소값으로 사용한다.
+- EC2 메타데이터 옵션의 `http_put_response_hop_limit = 2` 는 유지한다.
+  - 현재 애플리케이션이 인스턴스 프로파일 기반 AWS SDK 자격증명에 의존할 수 있기 때문이다.
+
+## 2. 트랙별 토폴로지
+
+### 2.1 Track A
+
+| 이름 | 역할 | AZ | 서브넷 | 타입 | 루트 디스크 |
+| --- | --- | --- | --- | --- | --- |
+| `prod-ec2-k8s-cp-2a` | control-plane | `ap-northeast-2a` | `prod-subnet-private-2a` | `t3.medium` | `50GB gp3` |
+| `prod-ec2-k8s-worker-2b` | worker | `ap-northeast-2b` | `prod-subnet-private-2b` | `t3.medium` | `50GB gp3` |
+| `prod-ec2-k8s-worker-2c` | worker | `ap-northeast-2c` | `prod-subnet-private-2c` | `t3.medium` | `50GB gp3` |
+
+### 2.2 Track B 최종 상태
+
+| 이름 | 역할 | AZ | 서브넷 | 타입 | 루트 디스크 |
+| --- | --- | --- | --- | --- | --- |
+| `prod-ec2-k8s-cp-2a` | control-plane | `ap-northeast-2a` | `prod-subnet-private-2a` | `t3.medium` | `50GB gp3` |
+| `prod-ec2-k8s-cp-2b` | control-plane | `ap-northeast-2b` | `prod-subnet-private-2b` | `t3.medium` | `50GB gp3` |
+| `prod-ec2-k8s-cp-2c` | control-plane | `ap-northeast-2c` | `prod-subnet-private-2c` | `t3.medium` | `50GB gp3` |
+| `prod-ec2-k8s-worker-2a-1` | worker | `ap-northeast-2a` | `prod-subnet-private-2a` | `t3.medium` | `50GB gp3` |
+| `prod-ec2-k8s-worker-2a-2` | worker | `ap-northeast-2a` | `prod-subnet-private-2a` | `t3.medium` | `50GB gp3` |
+| `prod-ec2-k8s-worker-2b` | worker | `ap-northeast-2b` | `prod-subnet-private-2b` | `t3.medium` | `50GB gp3` |
+| `prod-ec2-k8s-worker-2c` | worker | `ap-northeast-2c` | `prod-subnet-private-2c` | `t3.medium` | `50GB gp3` |
+
+## 3. 네이밍 규칙
+
+| 구분 | 이름 |
+| --- | --- |
+| internal API NLB | `prod-nlb-k8s-apiserver-int` |
+| public ingress NLB | `prod-nlb-k8s-ingress-pub` |
+| control-plane SG | `prod-sg-k8s-control-plane` |
+| worker SG | `prod-sg-k8s-worker` |
+| internal API NLB SG | `prod-sg-k8s-apiserver-nlb` |
+| public ingress NLB SG | `prod-sg-k8s-ingress-nlb` |
+| node IAM role | `prod-k8s-node-role` |
+| node IAM profile | `prod-k8s-node-instance-profile` |
+| etcd / sealed-secret backup prefix | `s3://<BACKUP_BUCKET>/k8s/prod/` |
+
+## 4. 실행 위치 약속
+
+- `로컬 작업 PC`: Terraform 수정, `terraform plan/apply`, AWS CLI, kubectl 원격 접근 준비
+- `control-plane`: `kubeadm init`, add-on 설치, `kubectl` 운영
+- `worker`: `kubeadm join`, 노드 단위 점검
+- `검증 PC`: `curl`, WebSocket handshake, Host 헤더 기반 외부 라우팅 점검
+
+## Phase 0. 사전 준비
+
+### Step 0-1. 현재 prod 상태 백업
+
+- 실행 위치: `로컬 작업 PC`
+- 목적: v2 기준값과 Terraform 상태를 백업하고, 롤백 기준점을 만든다.
+- 명령어:
+
+```bash
+cd /Users/kimsj/kakao-tech/kall3team/3-team-Tasteam-cloud/v2-docker/terraform/environments/prod
+
+terraform init
+terraform state pull > "terraform-state-backup-$(date +%Y%m%d-%H%M%S).json"
+terraform output > "terraform-output-backup-$(date +%Y%m%d-%H%M%S).txt"
+
+terraform output -raw ec2_caddy_public_ip
+terraform output -raw ec2_redis_private_ip
+terraform output -raw rds_address
+terraform output -raw cloud_map_service_dns
+```
+
+- 기대 결과:
+  - state/outputs 백업 파일이 생성된다.
+  - 현재 Caddy, Redis, RDS 엔드포인트가 확인된다.
+- 실패 징후:
+  - `terraform init` 실패
+  - backend state 접근 실패
+- 롤백 / 정리:
+  - 변경 사항은 아직 없으므로 백업 파일만 남기고 종료한다.
+
+### Step 0-2. 공용 ECR / 이미지 위치 확인
+
+- 실행 위치: `로컬 작업 PC`
+- 목적: Track A 에서 사용할 Spring/FastAPI 이미지 URI 를 확정한다.
+- 명령어:
+
+```bash
+cd /Users/kimsj/kakao-tech/kall3team/3-team-Tasteam-cloud/v2-docker/terraform/environments/shared
+
+terraform init
+terraform output -raw ecr_repository_backend_url
+
+echo "FASTAPI_IMAGE 는 AI 레포 CI 또는 별도 ECR에서 확인해서 수동 입력"
+```
+
+- 기대 결과:
+  - Spring Boot ECR URI 를 확보한다.
+  - FastAPI 이미지 URI 를 별도 준비한다.
+- 실패 징후:
+  - shared state 접근 실패
+  - FastAPI 이미지 위치를 확인할 수 없음
+- 롤백 / 정리:
+  - 이미지 위치가 불명확하면 Phase 4 진입을 중단한다.
+
+### Step 0-3. 백업 버킷 / 도구 준비
+
+- 실행 위치: `로컬 작업 PC`
+- 목적: 이후 백업과 설치 검증에 필요한 변수와 도구를 준비한다.
+- 명령어:
+
+```bash
+export AWS_PROFILE=tasteam-v2
+export AWS_REGION=ap-northeast-2
+export BACKUP_BUCKET=$(
+  cd /Users/kimsj/kakao-tech/kall3team/3-team-Tasteam-cloud/v2-docker/terraform/environments/prod && \
+  terraform output -raw k8s_backup_bucket_name
+)
+
+aws sts get-caller-identity
+aws s3 ls "s3://${BACKUP_BUCKET}" || true
+
+brew install helm jq yq kubectx || true
+brew install kubeseal || true
+```
+
+- 기대 결과:
+  - AWS 계정/리전이 정확하고, Helm/JQ/Kubectl 계열 도구가 준비된다.
+- 실패 징후:
+  - 잘못된 AWS 계정
+  - 백업 버킷 미존재
+- 롤백 / 정리:
+  - 환경변수를 해제하고 올바른 프로파일로 다시 시작한다.
+
+## Phase 1. `prod` Terraform 확장
+
+### Step 1-1. `2b` subnet 추가
+
+- 실행 위치: `로컬 작업 PC`
+- 목적: 기존 `2a/2c` subnet 을 유지한 채 `2b` 를 추가한다.
+- 명령어:
+
+```hcl
+# v2-docker/terraform/environments/prod/main.tf
+module "vpc" {
+  source = "../../modules/vpc"
+
+  environment          = var.environment
+  vpc_cidr             = "10.11.0.0/16"
+  public_subnet_cidrs  = ["10.11.0.0/20", "10.11.16.0/20", "10.11.32.0/20"]
+  private_subnet_cidrs = ["10.11.128.0/20", "10.11.144.0/20", "10.11.160.0/20"]
+  availability_zones   = ["ap-northeast-2a", "ap-northeast-2c", "ap-northeast-2b"]
+}
+```
+
+- 기대 결과:
+  - 기존 `2a`, `2c` subnet 은 유지되고 `2b` pair 만 추가된다.
+- 실패 징후:
+  - 배열 순서를 `2a, 2b, 2c` 로 바꿔 기존 subnet 교체가 발생하려는 plan 이 보임
+- 롤백 / 정리:
+  - 배열 순서를 원복하고 다시 `terraform plan` 한다.
+
+### Step 1-2. K8s 전용 리소스 설계 반영
+
+- 실행 위치: `로컬 작업 PC`
+- 목적: v2 리소스와 분리된 병렬 K8s 리소스를 추가한다.
+- 작업 원칙:
+  - `asg_spring`, `ec2_caddy`, `ec2_redis`, `rds` 는 그대로 둔다.
+  - 새 파일 예시: `v2-docker/terraform/environments/prod/k8s_prod.tf`
+  - 기존 `module.vpc.private_subnet_ids` 인덱스는 아래처럼 해석한다.
+
+```hcl
+locals {
+  private_subnet_2a = module.vpc.private_subnet_ids[0]
+  private_subnet_2c = module.vpc.private_subnet_ids[1]
+  private_subnet_2b = module.vpc.private_subnet_ids[2]
+
+  public_subnet_2a = module.vpc.public_subnet_ids[0]
+  public_subnet_2c = module.vpc.public_subnet_ids[1]
+  public_subnet_2b = module.vpc.public_subnet_ids[2]
+}
+```
+
+- 추가해야 할 리소스:
+  - `aws_iam_role.prod_k8s_node`, `aws_iam_instance_profile.prod_k8s_node`
+  - `aws_security_group.k8s_control_plane`
+  - `aws_security_group.k8s_worker`
+  - `aws_security_group.k8s_apiserver_nlb`
+  - `aws_security_group.k8s_ingress_nlb`
+  - `aws_lb.k8s_apiserver_internal`
+  - `aws_lb.k8s_ingress_public`
+  - 각 NLB 의 target group / listener / attachment
+  - `module.ec2_k8s_cp_2a`
+  - `module.ec2_k8s_worker_2b`
+  - `module.ec2_k8s_worker_2c`
+  - Track B 용 `module.ec2_k8s_cp_2b`, `module.ec2_k8s_cp_2c`, `module.ec2_k8s_worker_2a_1`, `module.ec2_k8s_worker_2a_2`
+- IAM 정책 최소 범위:
+  - `AmazonSSMManagedInstanceCore`
+  - `ecr:GetAuthorizationToken`, `ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer`, `ecr:BatchCheckLayerAvailability`
+  - `ssm:GetParameter*` for `/prod/tasteam/backend/*`, `/prod/tasteam/fastapi/*`, `/prod/tasteam/monitoring/*`
+  - `kms:Decrypt`
+  - analytics/uploads S3 read-write
+- SG 최소 규칙:
+  - baseline:
+    - 모든 노드는 private subnet + SSM 접속 기준으로 운영한다.
+    - break-glass SSH 를 별도로 열지 않는 한 `22/tcp` 는 기본 SG 에 넣지 않는다.
+  - control-plane SG ingress:
+    - `6443/tcp` from `k8s_apiserver_nlb`, `k8s_worker`
+    - `2379-2380/tcp` from `k8s_control_plane`
+    - `10250/tcp` from `k8s_control_plane`, `k8s_worker`
+    - `10257/tcp` from `k8s_control_plane`
+    - `10259/tcp` from `k8s_control_plane`
+    - `4789/udp` from `k8s_control_plane`, `k8s_worker`
+  - worker SG ingress:
+    - `30080/tcp`, `30443/tcp` from `k8s_ingress_nlb`
+    - `10250/tcp` from `k8s_control_plane`
+    - `4789/udp` from `k8s_control_plane`, `k8s_worker`
+  - RDS SG:
+    - `5432/tcp` from `k8s_worker`
+  - Redis SG:
+    - `6379/tcp` from `k8s_worker`
+  - SG egress:
+    - 이번 런북은 기본 `all` 허용으로 두고, egress 축소는 후속 하드닝 단계에서 다룬다.
+- NLB 설계:
+  - internal API NLB:
+    - scheme: internal
+    - security group: `k8s_apiserver_nlb`
+    - subnets: private `2a`, `2c`, `2b`
+    - listener: `6443/TCP`
+    - target group: control-plane instances `6443/TCP`
+    - target type: `instance`
+    - health check: `TCP:6443`
+    - attachment:
+      - Track A: `cp-2a`
+      - Track B: `cp-2b`, `cp-2c`
+  - public ingress NLB:
+    - scheme: internet-facing
+    - security group: `k8s_ingress_nlb`
+    - subnets: public `2a`, `2c`, `2b`
+    - listeners: `80/TCP`, `443/TCP`
+    - target groups: worker instances `30080/TCP`, `30443/TCP`
+    - target type: `instance`
+    - health check: `TCP:30080`, `TCP:30443`
+    - attachment:
+      - Track A: `worker-2b`, `worker-2c`
+      - Track B: `worker-2a-1`, `worker-2a-2`
+- 인스턴스 설계:
+  - 타입: `t3.medium`
+  - 루트 디스크: `50GB gp3`
+  - 서브넷:
+    - Track A: `cp-2a`, `worker-2b`, `worker-2c`
+    - Track B: `cp-2b`, `cp-2c`, `worker-2a-1`, `worker-2a-2`
+  - 프로파일: `prod-k8s-node-instance-profile`
+- Terraform output 계약:
+  - Track A 즉시 사용:
+    - `k8s_api_nlb_dns_name`
+    - `k8s_ingress_nlb_dns_name`
+    - `k8s_apiserver_tg_arn`
+    - `k8s_ingress_http_tg_arn`
+    - `k8s_ingress_https_tg_arn`
+    - `k8s_cp_2a_instance_id`
+    - `k8s_worker_2b_instance_id`
+    - `k8s_worker_2c_instance_id`
+  - Track B apply 후 사용:
+    - `k8s_cp_2b_instance_id`
+    - `k8s_cp_2c_instance_id`
+
+- 기대 결과:
+  - 새 K8s 자원만 추가되고 기존 v2 자원에는 diff 가 없어야 한다.
+- 실패 징후:
+  - `prod-sg-app`, `asg_spring`, 기존 subnet/resource replacement 가 plan 에 등장함
+- 롤백 / 정리:
+  - `k8s_prod.tf` 에서 새 리소스만 제거하고 다시 plan 한다.
+
+### Step 1-3. Track A `plan/apply`
+
+- 실행 위치: `로컬 작업 PC`
+- 목적: Track A 에 필요한 네트워크 / IAM / NLB / 노드를 먼저 생성한다.
+- 명령어:
+
+```bash
+cd /Users/kimsj/kakao-tech/kall3team/3-team-Tasteam-cloud/v2-docker/terraform/environments/prod
+
+terraform fmt
+terraform validate
+terraform plan -out=tfplan-k8s-track-a
+terraform show -no-color tfplan-k8s-track-a | tee tfplan-k8s-track-a.txt
+terraform apply tfplan-k8s-track-a
+
+# target registration 확인
+aws elbv2 describe-target-health \
+  --target-group-arn "$(terraform output -raw k8s_apiserver_tg_arn)"
+
+aws elbv2 describe-target-health \
+  --target-group-arn "$(terraform output -raw k8s_ingress_http_tg_arn)"
+
+aws elbv2 describe-target-health \
+  --target-group-arn "$(terraform output -raw k8s_ingress_https_tg_arn)"
+```
+
+- 기대 결과:
+  - 새 `2b` subnet
+  - Track A 노드 3대
+  - internal/public NLB 와 target group
+  - 새 IAM profile / SG
+  - RDS/Redis SG 허용 규칙 추가
+  - target group 에 Track A 인스턴스 attachment 가 보인다.
+  - 이 시점의 health status 는 `initial` 또는 `unhealthy` 여도 괜찮다. API server 와 ingress 는 아직 기동 전이다.
+- 실패 징후:
+  - EC2 생성은 되었지만 SSM managed instance 로 올라오지 않음
+  - target registration 자체가 비어 있음
+- 롤백 / 정리:
+
+```bash
+terraform destroy \
+  -target=module.ec2_k8s_cp_2a \
+  -target=module.ec2_k8s_worker_2b \
+  -target=module.ec2_k8s_worker_2c \
+  -target=aws_lb.k8s_apiserver_internal \
+  -target=aws_lb.k8s_ingress_public \
+  -target=aws_security_group.k8s_control_plane \
+  -target=aws_security_group.k8s_worker \
+  -target=aws_security_group.k8s_apiserver_nlb \
+  -target=aws_security_group.k8s_ingress_nlb
+```
+
+### Step 1-4. 신규 출력값 확인
+
+- 실행 위치: `로컬 작업 PC`
+- 목적: Phase 2/3 에서 사용할 대상 인스턴스와 NLB DNS 를 확인한다.
+- 명령어:
+
+```bash
+terraform output
+
+# 아래 출력은 k8s 리소스 추가 시 함께 만들어둔다.
+terraform output -raw k8s_api_nlb_dns_name
+terraform output -raw k8s_ingress_nlb_dns_name
+terraform output -raw k8s_apiserver_tg_arn
+terraform output -raw k8s_ingress_http_tg_arn
+terraform output -raw k8s_ingress_https_tg_arn
+terraform output -raw k8s_cp_2a_instance_id
+terraform output -raw k8s_worker_2b_instance_id
+terraform output -raw k8s_worker_2c_instance_id
+
+# 아래 출력은 Track B apply 후 확인한다.
+# Track A 시점에는 아직 값이 없어서 실패할 수 있다.
+terraform output -raw k8s_cp_2b_instance_id
+terraform output -raw k8s_cp_2c_instance_id
+```
+
+- 기대 결과:
+  - API NLB DNS, ingress NLB DNS, target group ARN, Track A 인스턴스 ID 를 모두 확보한다.
+  - Track B 시점에는 cp-2b/c 인스턴스 ID 도 같은 이름으로 조회된다.
+- 실패 징후:
+  - 필요한 output 이 없음
+- 롤백 / 정리:
+  - output block 을 추가하고 다시 `terraform apply` 한다.
+
+## Phase 2. 모든 노드 공통 OS bootstrap
+
+### Step 2-1. SSM 으로 Track A 노드 접속
+
+- 실행 위치: `로컬 작업 PC`
+- 목적: private subnet 노드에 SSH 없이 접속한다.
+- 명령어:
+
+```bash
+export CP1_INSTANCE_ID=$(terraform output -raw k8s_cp_2a_instance_id)
+export WK2B_INSTANCE_ID=$(terraform output -raw k8s_worker_2b_instance_id)
+export WK2C_INSTANCE_ID=$(terraform output -raw k8s_worker_2c_instance_id)
+
+aws ssm start-session --target "${CP1_INSTANCE_ID}"
+aws ssm start-session --target "${WK2B_INSTANCE_ID}"
+aws ssm start-session --target "${WK2C_INSTANCE_ID}"
+```
+
+- 기대 결과:
+  - 세 노드 모두 shell 세션이 열린다.
+- 실패 징후:
+  - `TargetNotConnected`
+- 롤백 / 정리:
+  - IAM profile / SSM agent / outbound NAT 경로를 먼저 복구한다.
+
+### Step 2-2. 노드 bootstrap 스크립트 실행
+
+- 실행 위치: `각 노드`
+- 목적: kubeadm 전 공통 OS 설정을 끝낸다.
+- 명령어:
+
+```bash
+cat <<'EOF' >/tmp/bootstrap-k8s-node.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+sudo hostnamectl set-hostname "${1:?hostname required}"
+sudo timedatectl set-timezone Asia/Seoul
+sudo timedatectl set-ntp true
+
+sudo swapoff -a
+sudo sed -i.bak '/ swap / s/^/#/' /etc/fstab
+
+sudo apt-get update
+sudo apt-get install -y \
+  apt-transport-https \
+  ca-certificates \
+  curl \
+  gettext-base \
+  gnupg \
+  jq \
+  socat \
+  conntrack \
+  ebtables \
+  ethtool \
+  containerd
+
+sudo mkdir -p /etc/modules-load.d /etc/sysctl.d /etc/containerd /etc/apt/keyrings
+cat <<'MOD' | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+MOD
+
+sudo modprobe overlay
+sudo modprobe br_netfilter
+
+cat <<'SYS' | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward = 1
+SYS
+
+sudo sysctl --system
+sudo containerd config default | sudo tee /etc/containerd/config.toml >/dev/null
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+sudo systemctl enable --now containerd
+
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /' \
+  | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+sudo apt-get update
+sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+sudo systemctl enable kubelet
+EOF
+
+chmod +x /tmp/bootstrap-k8s-node.sh
+sudo /tmp/bootstrap-k8s-node.sh prod-ec2-k8s-cp-2a
+```
+
+- worker 에서는 hostname 만 바꿔 실행:
+
+```bash
+sudo /tmp/bootstrap-k8s-node.sh prod-ec2-k8s-worker-2b
+sudo /tmp/bootstrap-k8s-node.sh prod-ec2-k8s-worker-2c
+```
+
+- 기대 결과:
+  - `containerd`, `kubelet`, `kubeadm`, `kubectl` 설치 완료
+  - swap 비활성화
+  - `SystemdCgroup = true`
+- 실패 징후:
+  - `swap is enabled`
+  - `containerd` inactive
+  - Kubernetes repo 추가 실패
+- 롤백 / 정리:
+
+```bash
+sudo kubeadm reset -f || true
+sudo apt-mark unhold kubelet kubeadm kubectl || true
+sudo apt-get remove -y kubelet kubeadm kubectl containerd || true
+sudo rm -f /etc/apt/sources.list.d/kubernetes.list
+```
+
+### Step 2-3. bootstrap 검증
+
+- 실행 위치: `각 노드`
+- 목적: kubeadm init/join 전에 공통 준비 상태를 확인한다.
+- 명령어:
+
+```bash
+swapon --show
+systemctl status containerd --no-pager
+systemctl status kubelet --no-pager
+sudo ctr version
+hostnamectl
+```
+
+- 기대 결과:
+  - swap 출력 없음
+  - `containerd` active
+  - `kubelet` active (또는 kubeadm 대기 상태)
+- 실패 징후:
+  - `container runtime is not running`
+- 롤백 / 정리:
+  - Step 2-2 를 다시 수행한다.
+
+## Phase 3. Track A 클러스터 기동
+
+### Step 3-1. 첫 control-plane 초기화
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`, `로컬 작업 PC`
+- 목적: internal API NLB 를 endpoint 로 사용하는 첫 control-plane 을 띄운다.
+- 명령어:
+
+```bash
+export K8S_API_NLB_DNS=<terraform output -raw k8s_api_nlb_dns_name>
+export CP1_PRIVATE_IP=$(hostname -I | awk '{print $1}')
+
+cat <<EOF >/tmp/kubeadm-init.yaml
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: ${CP1_PRIVATE_IP}
+  bindPort: 6443
+nodeRegistration:
+  criSocket: unix:///run/containerd/containerd.sock
+  kubeletExtraArgs:
+    node-ip: ${CP1_PRIVATE_IP}
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+kubernetesVersion: stable-1.34
+controlPlaneEndpoint: "${K8S_API_NLB_DNS}:6443"
+networking:
+  podSubnet: 10.244.0.0/16
+  serviceSubnet: 10.96.0.0/12
+apiServer:
+  certSANs:
+    - ${K8S_API_NLB_DNS}
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+serverTLSBootstrap: true
+EOF
+
+sudo kubeadm init --config /tmp/kubeadm-init.yaml --upload-certs | tee /root/kubeadm-init.out
+
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown "$(id -u):$(id -g)" $HOME/.kube/config
+
+kubeadm token create --ttl 2h --print-join-command | tee /root/join-worker.sh
+CERT_KEY=$(sudo kubeadm init phase upload-certs --upload-certs | tail -1)
+echo "$CERT_KEY" | tee /root/certificate-key.txt
+
+echo "Track A worker join command:"
+cat /root/join-worker.sh
+
+# 로컬 kubectl / kubeseal 을 쓸 계획이면 admin.conf 내용을 안전한 로컬 파일로 복사해둔다.
+sudo cat /etc/kubernetes/admin.conf
+
+# 로컬 작업 PC에서 API target health 재확인
+cd /Users/kimsj/kakao-tech/kall3team/3-team-Tasteam-cloud/v2-docker/terraform/environments/prod
+aws elbv2 describe-target-health \
+  --target-group-arn "$(terraform output -raw k8s_apiserver_tg_arn)"
+```
+
+- 기대 결과:
+  - `/etc/kubernetes/admin.conf` 생성
+  - `kubectl get nodes` 시 cp 노드 1대 확인
+  - worker join command 와 certificate key 확보
+  - API NLB target group 이 `healthy` 로 전환된다.
+- 실패 징후:
+  - `timed out waiting for the condition`
+  - `controlPlaneEndpoint` 접근 실패
+  - API target health 가 계속 `unhealthy`
+- 롤백 / 정리:
+
+```bash
+sudo kubeadm reset -f
+sudo rm -rf $HOME/.kube /etc/cni/net.d
+```
+
+### Step 3-2. Track A worker join
+
+- 실행 위치: `prod-ec2-k8s-worker-2b`, `prod-ec2-k8s-worker-2c`
+- 목적: cp1 아래에 worker 2대를 붙인다.
+- 명령어:
+
+```bash
+# cp-2a 에서 출력한 join command 를 그대로 복사해서 각 worker 에서 실행
+sudo kubeadm join <K8S_API_NLB_DNS>:6443 \
+  --token <TOKEN> \
+  --discovery-token-ca-cert-hash sha256:<HASH>
+```
+
+- 기대 결과:
+  - 두 worker 가 cluster 에 `Ready` 또는 `NotReady` 로 먼저 보이고, CNI 설치 후 `Ready` 로 전환된다.
+- 실패 징후:
+  - `discovery token ca cert hash` mismatch
+  - `connection refused` to API endpoint
+- 롤백 / 정리:
+
+```bash
+sudo kubeadm reset -f
+sudo rm -rf /etc/cni/net.d
+```
+
+### Step 3-3. Calico 설치
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: AWS VPC 에서 동작 우선 기준으로 Calico `iptables + VXLAN CrossSubnet` 조합을 올린다.
+- 비고:
+  - `05-kubeadm.md` 는 Calico 선택까지 확정했지만 AWS VPC encapsulation 은 고정하지 않았다.
+  - 이번 런북은 BGP 직접 라우팅 대신 **VXLAN CrossSubnet** 으로 시작한다.
+- 명령어:
+
+```bash
+helm repo add projectcalico https://docs.tigera.io/calico/charts
+helm repo update
+
+kubectl create namespace tigera-operator --dry-run=client -o yaml | kubectl apply -f -
+helm upgrade --install calico projectcalico/tigera-operator -n tigera-operator
+
+cat <<'EOF' >/tmp/calico-installation.yaml
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+spec:
+  kubernetesProvider: kubeadm
+  calicoNetwork:
+    ipPools:
+      - cidr: 10.244.0.0/16
+        encapsulation: VXLANCrossSubnet
+        natOutgoing: Enabled
+        nodeSelector: all()
+---
+apiVersion: operator.tigera.io/v1
+kind: APIServer
+metadata:
+  name: default
+spec: {}
+EOF
+
+kubectl apply -f /tmp/calico-installation.yaml
+kubectl rollout status deployment/calico-kube-controllers -n calico-system --timeout=5m
+kubectl get pods -n calico-system -o wide
+```
+
+- 기대 결과:
+  - `calico-system` pod 들이 `Running`
+  - `kubectl get nodes` 가 전부 `Ready`
+- 실패 징후:
+  - node 계속 `NotReady`
+  - `BIRD is not ready` 류 메시지 반복
+- 롤백 / 정리:
+
+```bash
+helm uninstall calico -n tigera-operator || true
+kubectl delete installation.operator.tigera.io default || true
+kubectl delete apiserver.operator.tigera.io default || true
+```
+
+### Step 3-4. Metrics Server 설치
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: HPA 에 필요한 리소스 메트릭을 제공한다.
+- 명령어:
+
+```bash
+helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+helm repo update
+
+helm upgrade --install metrics-server metrics-server/metrics-server \
+  -n kube-system \
+  --set args[0]=--kubelet-insecure-tls \
+  --set args[1]=--kubelet-preferred-address-types=InternalIP,Hostname
+
+kubectl rollout status deployment/metrics-server -n kube-system --timeout=5m
+kubectl top nodes
+```
+
+- 기대 결과:
+  - `kubectl top nodes` 가 값 반환
+- 실패 징후:
+  - `Metrics API not available`
+- 롤백 / 정리:
+
+```bash
+helm uninstall metrics-server -n kube-system
+```
+
+### Step 3-5. ingress-nginx 설치
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`, `로컬 작업 PC`
+- 목적: public NLB 가 바라볼 NodePort ingress 를 설치한다.
+- 명령어:
+
+```bash
+kubectl create namespace ingress-nginx --dry-run=client -o yaml | kubectl apply -f -
+
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+  -n ingress-nginx \
+  --set controller.replicaCount=2 \
+  --set controller.service.type=NodePort \
+  --set controller.service.nodePorts.http=30080 \
+  --set controller.service.nodePorts.https=30443 \
+  --set controller.admissionWebhooks.enabled=true
+
+kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=5m
+kubectl get svc -n ingress-nginx ingress-nginx-controller
+
+# 로컬 작업 PC에서 ingress target health 재확인
+cd /Users/kimsj/kakao-tech/kall3team/3-team-Tasteam-cloud/v2-docker/terraform/environments/prod
+aws elbv2 describe-target-health \
+  --target-group-arn "$(terraform output -raw k8s_ingress_http_tg_arn)"
+
+aws elbv2 describe-target-health \
+  --target-group-arn "$(terraform output -raw k8s_ingress_https_tg_arn)"
+```
+
+- 기대 결과:
+  - ingress-nginx controller 2개가 worker 에 올라간다.
+  - service 가 `NodePort 30080/30443` 로 노출된다.
+  - public NLB target group health 가 점차 `healthy` 로 바뀐다.
+- 실패 징후:
+  - controller pod 가 control-plane 에 붙으려 함
+  - public NLB target unhealthy 지속
+- 롤백 / 정리:
+
+```bash
+helm uninstall ingress-nginx -n ingress-nginx
+kubectl delete namespace ingress-nginx
+```
+
+### Step 3-6. Linkerd 설치
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: `app-prod` 에 mTLS / retry / timeout 관측 기반을 제공한다.
+- 명령어:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSfL https://run.linkerd.io/install-edge | sh
+export PATH="$HOME/.linkerd2/bin:$PATH"
+
+linkerd check --pre
+linkerd install --crds | kubectl apply -f -
+linkerd install | kubectl apply -f -
+linkerd check
+```
+
+- 기대 결과:
+  - `linkerd check` 통과
+- 실패 징후:
+  - CNI / iptables / admission webhook 관련 pre-check 실패
+- 롤백 / 정리:
+
+```bash
+linkerd uninstall | kubectl delete -f - || true
+kubectl delete namespace linkerd || true
+```
+
+### Step 3-7. ArgoCD 설치
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: 이후 GitOps 운영용 control plane 을 먼저 올린다.
+- 명령어:
+
+```bash
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+kubectl rollout status deployment/argocd-server -n argocd --timeout=10m
+kubectl rollout status deployment/argocd-repo-server -n argocd --timeout=10m
+kubectl rollout status statefulset/argocd-application-controller -n argocd --timeout=10m
+```
+
+- 기대 결과:
+  - `argocd` namespace 핵심 컴포넌트가 `Running`
+- 실패 징후:
+  - CRD apply 실패
+- 롤백 / 정리:
+
+```bash
+kubectl delete namespace argocd
+```
+
+### Step 3-8. Sealed Secrets 설치
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: `app-prod` 민감값을 Git/파일 기반으로 안전하게 다루기 위한 복호화 컨트롤러를 설치한다.
+- 명령어:
+
+```bash
+helm repo add sealed-secrets https://bitnami-labs.github.io/sealed-secrets
+helm repo update
+
+helm upgrade --install sealed-secrets sealed-secrets/sealed-secrets \
+  -n kube-system
+
+kubectl rollout status deployment/sealed-secrets -n kube-system --timeout=5m
+kubectl get deployment sealed-secrets -n kube-system
+```
+
+- 기대 결과:
+  - controller pod `Running`
+- 실패 징후:
+  - deployment 가 생성되지 않음
+- 롤백 / 정리:
+  - `helm uninstall sealed-secrets -n kube-system`
+
+### Step 3-8-1. `cp-2a` 에서 `kubeseal` 실행 준비
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: Phase 4 Sealed Secret 생성을 `cp-2a` 에서 기본 경로로 처리할 수 있게 한다.
+- 명령어:
+
+```bash
+KUBESEAL_VERSION=$(
+  curl -fsSL https://api.github.com/repos/bitnami-labs/sealed-secrets/tags \
+    | grep -m1 -o '"name": "v[^"]*"' \
+    | cut -d'"' -f4 \
+    | sed 's/^v//'
+)
+
+curl -fsSLo /tmp/kubeseal.tar.gz \
+  "https://github.com/bitnami-labs/sealed-secrets/releases/download/v${KUBESEAL_VERSION}/kubeseal-${KUBESEAL_VERSION}-linux-amd64.tar.gz"
+tar -xzf /tmp/kubeseal.tar.gz -C /tmp kubeseal
+sudo install -m 0755 /tmp/kubeseal /usr/local/bin/kubeseal
+
+export KUBECONFIG=$HOME/.kube/config
+kubeseal --version
+kubeseal --fetch-cert \
+  --controller-name=sealed-secrets \
+  --controller-namespace=kube-system > "$HOME/sealed-secrets-prod.pem"
+```
+
+- 기대 결과:
+  - `kubeseal` CLI 가 `cp-2a` 에 설치된다.
+  - `sealed-secrets-prod.pem` 생성
+- 실패 징후:
+  - GitHub release 다운로드 실패
+  - `kubeseal --fetch-cert` 실패
+- 롤백 / 정리:
+  - `sudo rm -f /usr/local/bin/kubeseal "$HOME/sealed-secrets-prod.pem"` 후 kubeconfig / API endpoint / controller 상태를 점검한다.
+
+- 비고:
+  - 로컬 작업 PC 에서 `kubeseal` 을 계속 쓰고 싶다면 Phase 0 의 `brew install kubeseal` 과 Step 3-1 의 `admin.conf` 복사 경로를 사용한다.
+
+### Step 3-8-2. Track A addon 상태 / 버전 캡처
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: Track B 와 이후 재설치 시 Track A 에서 검증된 chart/image 조합을 기준으로 재현한다.
+- 명령어:
+
+```bash
+helm list -A | tee /root/track-a-helm-releases.txt
+
+kubectl get deployment,statefulset -A \
+  -o custom-columns='NAMESPACE:.metadata.namespace,KIND:.kind,NAME:.metadata.name,IMAGES:.spec.template.spec.containers[*].image' \
+  | tee /root/track-a-addon-images.txt
+
+kubeseal --version | tee /root/track-a-kubeseal-version.txt
+```
+
+- 기대 결과:
+  - Helm release 목록, 핵심 addon 이미지 목록, `kubeseal` 버전이 파일로 남는다.
+- 실패 징후:
+  - `helm list -A` 실패
+  - 이미지 목록 추출 실패
+- 롤백 / 정리:
+  - `/root/track-a-helm-releases.txt`, `/root/track-a-addon-images.txt`, `/root/track-a-kubeseal-version.txt` 를 삭제하고 다시 캡처한다.
+
+### Step 3-9. 초기 백업
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: Track A 직후 Sealed Secrets 키와 etcd snapshot 을 백업한다.
+- 명령어:
+
+```bash
+kubectl get secret -n kube-system \
+  -l sealedsecrets.bitnami.com/sealed-secrets-key \
+  -o yaml > /tmp/sealed-secrets-key-backup.yaml
+
+aws s3 cp /tmp/sealed-secrets-key-backup.yaml \
+  "s3://${BACKUP_BUCKET}/k8s/prod/sealed-secrets/sealed-secrets-key-backup.yaml" \
+  --sse aws:kms
+
+sudo ETCDCTL_API=3 etcdctl snapshot save /tmp/etcd-track-a.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+sudo ETCDCTL_API=3 etcdctl snapshot status /tmp/etcd-track-a.db --write-out=table
+aws s3 cp /tmp/etcd-track-a.db \
+  "s3://${BACKUP_BUCKET}/k8s/prod/etcd/etcd-track-a.db" \
+  --sse aws:kms
+```
+
+- 기대 결과:
+  - sealed secret key 와 etcd snapshot 이 S3 에 저장된다.
+- 실패 징후:
+  - S3 업로드 실패
+  - etcdctl TLS 오류
+- 롤백 / 정리:
+  - 백업이 하나라도 실패하면 Track A 완료로 간주하지 않는다.
+
+## Phase 4. `app-prod` 배포
+
+### Step 4-1. namespace / Linkerd 자동 주입 준비
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: `app-prod` namespace 와 sidecar 주입을 먼저 준비한다.
+- 명령어:
+
+```bash
+kubectl create namespace app-prod --dry-run=client -o yaml | kubectl apply -f -
+kubectl label namespace app-prod linkerd.io/inject=enabled --overwrite
+kubectl get namespace app-prod --show-labels
+```
+
+- 기대 결과:
+  - `app-prod` 생성
+  - `linkerd.io/inject=enabled`
+- 실패 징후:
+  - namespace 미생성
+- 롤백 / 정리:
+
+```bash
+kubectl delete namespace app-prod
+```
+
+### Step 4-2. SSM 값을 runtime env 파일로 추출
+
+- 실행 위치: `로컬 작업 PC` 또는 `prod-ec2-k8s-cp-2a`
+- 목적: 현재 prod 런타임 값을 그대로 재사용한다.
+- 명령어:
+
+```bash
+mkdir -p "$HOME/tasteam-k8s/app-prod"
+cd "$HOME/tasteam-k8s/app-prod"
+
+aws ssm get-parameters-by-path \
+  --region "${AWS_REGION}" \
+  --path /prod/tasteam/backend \
+  --recursive \
+  --with-decryption \
+  --query "Parameters[*].[Name,Value]" \
+  --output text \
+  | awk -F'\t' '{print $1"="$2}' \
+  | sed 's#.*/##' > backend-runtime.env
+
+aws ssm get-parameters-by-path \
+  --region "${AWS_REGION}" \
+  --path /prod/tasteam/fastapi \
+  --recursive \
+  --with-decryption \
+  --query "Parameters[*].[Name,Value]" \
+  --output text \
+  | awk -F'\t' '{print $1"="$2}' \
+  | sed 's#.*/##' > fastapi-runtime.env
+
+cat <<'EOF' > app-prod-config.env
+SPRING_PROFILES_ACTIVE=prod
+FASTAPI_URL=http://fastapi-svc.app-prod.svc.cluster.local
+TZ=Asia/Seoul
+EOF
+```
+
+- 기대 결과:
+  - `backend-runtime.env`, `fastapi-runtime.env`, `app-prod-config.env` 생성
+- 실패 징후:
+  - SSM path 값 일부 누락
+  - `.env` 안 줄바꿈 깨짐
+- 롤백 / 정리:
+  - 기존 env 파일을 삭제하고 다시 추출한다.
+
+### Step 4-3. Sealed Secret / ConfigMap 생성
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: 민감값은 Sealed Secret, 비민감 운영값은 ConfigMap 으로 생성한다.
+- 명령어:
+
+```bash
+cd "$HOME/tasteam-k8s/app-prod"
+export KUBECONFIG=$HOME/.kube/config
+
+kubectl create configmap app-prod-config \
+  -n app-prod \
+  --from-env-file=app-prod-config.env \
+  --dry-run=client -o yaml > 10-app-prod-configmap.yaml
+
+kubectl create secret generic spring-boot-runtime \
+  -n app-prod \
+  --from-env-file=backend-runtime.env \
+  --dry-run=client -o yaml \
+  | kubeseal \
+      --controller-name=sealed-secrets \
+      --controller-namespace=kube-system \
+      --format yaml > 20-spring-boot-runtime.sealed.yaml
+
+kubectl create secret generic fastapi-runtime \
+  -n app-prod \
+  --from-env-file=fastapi-runtime.env \
+  --dry-run=client -o yaml \
+  | kubeseal \
+      --controller-name=sealed-secrets \
+      --controller-namespace=kube-system \
+      --format yaml > 21-fastapi-runtime.sealed.yaml
+```
+
+- 기대 결과:
+  - ConfigMap 1개, SealedSecret 2개 YAML 생성
+- 실패 징후:
+  - `kubeseal` controller 연결 실패
+- 롤백 / 정리:
+  - 생성된 YAML 파일을 삭제하고 다시 만든다.
+
+- 비고:
+  - 로컬 작업 PC 에서 수행하려면 Step 3-8-1 의 비고대로 `kubeseal` 과 `KUBECONFIG` 를 준비한 뒤 동일 명령을 사용한다.
+
+### Step 4-4. `app-prod` 워크로드 YAML 작성
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: Spring/FastAPI 배포와 서비스 노출 리소스를 만든다.
+- 명령어:
+
+```bash
+cd "$HOME/tasteam-k8s/app-prod"
+
+export SPRING_IMAGE_URI=<backend image URI:tag>
+export FASTAPI_IMAGE_URI=<fastapi image URI:tag>
+: "${SPRING_IMAGE_URI:?set SPRING_IMAGE_URI}"
+: "${FASTAPI_IMAGE_URI:?set FASTAPI_IMAGE_URI}"
+
+cat <<'EOF' > 30-app-prod-workloads.yaml.tpl
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-boot
+  namespace: app-prod
+spec:
+  replicas: 2
+  progressDeadlineSeconds: 120
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: spring-boot
+  template:
+    metadata:
+      labels:
+        app: spring-boot
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: spring-boot
+          image: ${SPRING_IMAGE_URI}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: app-prod-config
+            - secretRef:
+                name: spring-boot-runtime
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi
+  namespace: app-prod
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: fastapi
+  template:
+    metadata:
+      labels:
+        app: fastapi
+    spec:
+      containers:
+        - name: fastapi
+          image: ${FASTAPI_IMAGE_URI}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: fastapi-runtime
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-boot-svc
+  namespace: app-prod
+spec:
+  type: ClusterIP
+  selector:
+    app: spring-boot
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastapi-svc
+  namespace: app-prod
+spec:
+  type: ClusterIP
+  selector:
+    app: fastapi
+  ports:
+    - port: 80
+      targetPort: 8000
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: spring-boot-pdb
+  namespace: app-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: spring-boot
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: spring-boot-hpa
+  namespace: app-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: spring-boot
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fastapi-hpa
+  namespace: app-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fastapi
+  minReplicas: 1
+  maxReplicas: 2
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tasteam-api-ingress
+  namespace: app-prod
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: tasteam.kr
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: spring-boot-svc
+                port:
+                  number: 80
+          - path: /ai
+            pathType: Prefix
+            backend:
+              service:
+                name: fastapi-svc
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tasteam-ws-ingress
+  namespace: app-prod
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: tasteam.kr
+      http:
+        paths:
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: spring-boot-svc
+                port:
+                  number: 80
+EOF
+
+envsubst < 30-app-prod-workloads.yaml.tpl > 30-app-prod-workloads.yaml
+grep -n 'image:' 30-app-prod-workloads.yaml
+```
+
+- 기대 결과:
+  - `05-kubeadm.md` 와 일치하는 `Deployment/Service/HPA/PDB/Ingress` 리소스 준비
+  - `30-app-prod-workloads.yaml` 에 실제 image URI 가 치환되어 있다.
+- 실패 징후:
+  - 이미지 URI 미확정
+  - FastAPI health path 불일치
+- 롤백 / 정리:
+  - `30-app-prod-workloads.yaml.tpl`, `30-app-prod-workloads.yaml` 만 삭제하면 된다.
+
+### Step 4-5. `app-prod` apply
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: prod 애플리케이션 리소스를 실제 cluster 에 반영한다.
+- 명령어:
+
+```bash
+cd "$HOME/tasteam-k8s/app-prod"
+
+kubectl apply -f 10-app-prod-configmap.yaml
+kubectl apply -f 20-spring-boot-runtime.sealed.yaml
+kubectl apply -f 21-fastapi-runtime.sealed.yaml
+kubectl apply -f 30-app-prod-workloads.yaml
+
+kubectl rollout status deployment/spring-boot -n app-prod --timeout=10m
+kubectl rollout status deployment/fastapi -n app-prod --timeout=10m
+kubectl get pods -n app-prod -o wide
+kubectl get ingress -n app-prod
+kubectl get hpa -n app-prod
+```
+
+- 기대 결과:
+  - Linkerd sidecar 포함 pod 가 뜬다.
+  - `spring-boot 2`, `fastapi 1` 기동
+- 실패 징후:
+  - `ImagePullBackOff`
+  - `CrashLoopBackOff`
+  - readiness probe 실패 지속
+- 롤백 / 정리:
+
+```bash
+kubectl delete -f 30-app-prod-workloads.yaml
+kubectl delete -f 21-fastapi-runtime.sealed.yaml
+kubectl delete -f 20-spring-boot-runtime.sealed.yaml
+kubectl delete -f 10-app-prod-configmap.yaml
+```
+
+### Step 4-6. 내부 / 외부 smoke test
+
+- 실행 위치: `prod-ec2-k8s-cp-2a` 및 `검증 PC`
+- 목적: 절체 전 public NLB DNS 와 Host 헤더로 외부 라우팅을 검증한다.
+- 명령어:
+
+```bash
+cd "$HOME/tasteam-k8s/app-prod"
+
+# 외부 의존성 reachability 확인
+DB_HOST=$(
+  grep '^DB_URL=' backend-runtime.env \
+    | sed -E 's#^DB_URL=jdbc:postgresql://([^:/?]+).*#\1#'
+)
+REDIS_HOST=$(grep '^REDIS_HOST=' backend-runtime.env | cut -d= -f2-)
+REDIS_PORT=$(grep '^REDIS_PORT=' backend-runtime.env | cut -d= -f2-)
+
+kubectl run netcheck -n app-prod --rm -it --restart=Never \
+  --image=nicolaka/netshoot \
+  -- sh -lc "nc -vz ${DB_HOST} 5432 && nc -vz ${REDIS_HOST} ${REDIS_PORT}"
+
+# 내부 서비스 확인용 임시 curl pod
+kubectl run curlbox -n app-prod --rm -it --restart=Never \
+  --image=curlimages/curl:8.12.1 \
+  -- sh -c 'curl -fsS http://fastapi-svc/health && echo && curl -fsS http://spring-boot-svc/actuator/health'
+
+# 외부 라우팅 확인
+export PUBLIC_NLB_DNS=<terraform output -raw k8s_ingress_nlb_dns_name>
+
+curl -i -H 'Host: tasteam.kr' "http://${PUBLIC_NLB_DNS}/api/actuator/health"
+curl -i -H 'Host: tasteam.kr' "http://${PUBLIC_NLB_DNS}/ai/health"
+
+# WebSocket handshake 확인 (경로는 실제 앱 엔드포인트로 교체)
+curl -i --http1.1 \
+  -H 'Host: tasteam.kr' \
+  -H 'Connection: Upgrade' \
+  -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Key: SGVsbG8sIHdvcmxkIQ==' \
+  -H 'Sec-WebSocket-Version: 13' \
+  "http://${PUBLIC_NLB_DNS}/ws"
+```
+
+- 기대 결과:
+  - DB `5432`, Redis `6379` TCP reachability 통과
+  - `/api/actuator/health` 200
+  - `/ai/health` 200
+  - `/ws` 는 실제 앱 계약에 따라 `101` 또는 인증/경로 관련 비-5xx 응답
+- 실패 징후:
+  - DB/Redis `nc` 실패
+  - public NLB 5xx
+  - ingress timeout
+  - WebSocket upgrade 자체가 실패
+- 롤백 / 정리:
+  - SSM env 추출값, RDS/Redis SG 규칙, Ingress, Service, worker target group 등록 상태를 먼저 확인한다.
+
+## Phase 5. Track B 운영 확장
+
+### Step 5-1. Track B 노드 생성
+
+- 실행 위치: `로컬 작업 PC`
+- 목적: control-plane 2대와 worker 2대를 추가한다.
+- 명령어:
+
+```bash
+cd /Users/kimsj/kakao-tech/kall3team/3-team-Tasteam-cloud/v2-docker/terraform/environments/prod
+
+terraform plan -out=tfplan-k8s-track-b
+terraform apply tfplan-k8s-track-b
+```
+
+- Track B 추가 대상:
+  - `prod-ec2-k8s-cp-2b`
+  - `prod-ec2-k8s-cp-2c`
+  - `prod-ec2-k8s-worker-2a-1`
+  - `prod-ec2-k8s-worker-2a-2`
+
+- 기대 결과:
+  - final topology 로 필요한 4대가 추가 생성
+  - NLB target registration 범위가 final 상태로 확장
+- 실패 징후:
+  - 새 인스턴스만 `unhealthy`
+- 롤백 / 정리:
+  - 새 Track B 자원만 target destroy 한다.
+
+### Step 5-2. Track B 노드 bootstrap
+
+- 실행 위치: `각 신규 노드`
+- 목적: Track A 와 동일한 bootstrap 을 적용한다.
+- 명령어:
+
+```bash
+# Step 2-2의 heredoc 전체를 신규 노드에 다시 붙여넣어 /tmp/bootstrap-k8s-node.sh 를 재생성한다.
+# /tmp/bootstrap-k8s-node.sh 가 남아있다고 가정하지 않는다.
+sudo /tmp/bootstrap-k8s-node.sh prod-ec2-k8s-cp-2b
+sudo /tmp/bootstrap-k8s-node.sh prod-ec2-k8s-cp-2c
+sudo /tmp/bootstrap-k8s-node.sh prod-ec2-k8s-worker-2a-1
+sudo /tmp/bootstrap-k8s-node.sh prod-ec2-k8s-worker-2a-2
+```
+
+- 기대 결과:
+  - 신규 4대 모두 kubeadm join 준비 완료
+- 실패 징후:
+  - containerd/kubelet inactive
+- 롤백 / 정리:
+  - Step 2-2 rollback 과 동일
+
+### Step 5-3. control-plane / worker join
+
+- 실행 위치: `prod-ec2-k8s-cp-2a` 및 신규 노드
+- 목적: control-plane 3대, worker 4대 완성
+- 명령어:
+
+```bash
+# cp-2a 에서
+JOIN_WORKER_CMD=$(kubeadm token create --ttl 2h --print-join-command)
+CERT_KEY=$(sudo kubeadm init phase upload-certs --upload-certs | tail -1)
+
+echo "${JOIN_WORKER_CMD}" | tee /root/join-worker-track-b.sh
+echo "${JOIN_WORKER_CMD} --control-plane --certificate-key ${CERT_KEY}" \
+  | tee /root/join-control-plane-track-b.sh
+
+echo "Track B control-plane join command:"
+cat /root/join-control-plane-track-b.sh
+echo "Track B worker join command:"
+cat /root/join-worker-track-b.sh
+```
+
+- 신규 control-plane 에서:
+
+```bash
+# cp-2a 에서 출력한 command 를 그대로 복사해서 각 신규 control-plane 에서 실행
+sudo kubeadm join <K8S_API_NLB_DNS>:6443 \
+  --token <TOKEN> \
+  --discovery-token-ca-cert-hash sha256:<HASH> \
+  --control-plane \
+  --certificate-key <CERT_KEY>
+```
+
+- 신규 worker 에서:
+
+```bash
+# cp-2a 에서 출력한 worker join command 를 그대로 복사해서 각 신규 worker 에서 실행
+sudo kubeadm join <K8S_API_NLB_DNS>:6443 \
+  --token <TOKEN> \
+  --discovery-token-ca-cert-hash sha256:<HASH>
+```
+
+- 이후 확인:
+
+```bash
+kubectl get nodes -o wide
+kubectl get pods -A -o wide
+```
+
+- 기대 결과:
+  - control-plane 3대, worker 4대 모두 `Ready`
+  - final worker 분포 `2a x2, 2b x1, 2c x1`
+- 실패 징후:
+  - control-plane join 시 cert key 오류
+  - etcd member sync 실패
+- 롤백 / 정리:
+
+```bash
+sudo kubeadm reset -f
+```
+
+## Phase 6. 운영 드릴
+
+### Step 6-1. rollout 실패 / undo 확인
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: 배포 실패 시 `rollout undo` 경로를 검증한다.
+- 명령어:
+
+```bash
+kubectl rollout status deployment/spring-boot -n app-prod
+kubectl logs -l app=spring-boot -n app-prod --tail=50
+kubectl describe pod -l app=spring-boot -n app-prod | grep -A5 "Events"
+
+# 실제 실패 상황 대응
+kubectl rollout undo deployment/spring-boot -n app-prod
+kubectl rollout status deployment/spring-boot -n app-prod
+```
+
+- 기대 결과:
+  - 실패 감지와 undo 경로가 확인된다.
+- 실패 징후:
+  - undo 후에도 Ready 복구 실패
+- 롤백 / 정리:
+  - Git / manifest 이미지 태그를 직전 버전으로 되돌린다.
+
+### Step 6-2. worker drain / reschedule
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: worker 1대 유지보수 시 서비스가 유지되는지 확인한다.
+- 명령어:
+
+```bash
+kubectl drain prod-ec2-k8s-worker-2b \
+  --ignore-daemonsets \
+  --delete-emptydir-data
+
+kubectl get pods -n app-prod -o wide
+kubectl uncordon prod-ec2-k8s-worker-2b
+```
+
+- 기대 결과:
+  - Spring/FastAPI 가 다른 worker 로 재스케줄
+  - 서비스 중단 없음
+- 실패 징후:
+  - PDB 때문에 drain 이 영원히 대기
+  - pod 재스케줄 실패
+- 롤백 / 정리:
+  - 즉시 `uncordon` 하고 원인 분석 후 재시도한다.
+
+### Step 6-3. control-plane 1대 실제 중단 / 복구 드릴
+
+- 실행 위치: `로컬 작업 PC`, `prod-ec2-k8s-cp-2a`
+- 목적: cp 1대 장애 시에도 API endpoint 가 유지되는지 확인한다.
+- 명령어:
+
+```bash
+cd /Users/kimsj/kakao-tech/kall3team/3-team-Tasteam-cloud/v2-docker/terraform/environments/prod
+export CP2B_INSTANCE_ID=$(terraform output -raw k8s_cp_2b_instance_id)
+
+# 아래 2줄은 로컬 작업 PC에서 실행
+aws ec2 stop-instances --instance-ids "${CP2B_INSTANCE_ID}"
+aws ec2 wait instance-stopped --instance-ids "${CP2B_INSTANCE_ID}"
+
+# 아래 3줄은 cp-2a 또는 KUBECONFIG 가 준비된 로컬에서 실행
+kubectl get nodes
+kubectl get pods -A
+kubectl cluster-info
+
+# 아래 2줄은 다시 로컬 작업 PC에서 실행
+aws ec2 start-instances --instance-ids "${CP2B_INSTANCE_ID}"
+aws ec2 wait instance-status-ok --instance-ids "${CP2B_INSTANCE_ID}"
+
+# 아래 1줄은 cp-2a 또는 KUBECONFIG 가 준비된 로컬에서 실행
+kubectl wait --for=condition=Ready node/prod-ec2-k8s-cp-2b --timeout=10m
+```
+
+- 기대 결과:
+  - 나머지 2대가 quorum 유지
+  - `kubectl` 동작 지속
+  - `prod-ec2-k8s-cp-2b` 가 복구 후 다시 `Ready`
+- 실패 징후:
+  - API endpoint 불가
+  - 재기동 후 node 가 `NotReady` 에서 복귀하지 않음
+- 롤백 / 정리:
+  - `aws ec2 start-instances --instance-ids "${CP2B_INSTANCE_ID}"` 를 다시 실행한 뒤 etcd / apiserver 로그를 확인한다.
+
+### Step 6-4. HPA scale-out 확인
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: CPU 기반 HPA 가 실제로 pod 수를 늘리는지 검증한다.
+- 명령어:
+
+```bash
+kubectl run loadgen -n app-prod --rm -it --restart=Never \
+  --image=rakyll/hey \
+  -- -z 120s -c 40 http://spring-boot-svc/actuator/health
+
+kubectl get hpa -n app-prod -w
+kubectl top pods -n app-prod
+```
+
+- 기대 결과:
+  - `spring-boot-hpa` 가 `2 -> 3` 이상으로 상승
+- 실패 징후:
+  - metrics 값 없음
+- 롤백 / 정리:
+  - loadgen pod 종료 후 HPA 가 다시 안정화되는지 확인한다.
+
+### Step 6-5. WebSocket idle / heartbeat 검증
+
+- 실행 위치: `검증 PC`
+- 목적: `/ws` ingress timeout 과 NLB chain 이 유휴 연결을 너무 빨리 끊지 않는지 본다.
+- 명령어:
+
+```bash
+export PUBLIC_NLB_DNS=<terraform output -raw k8s_ingress_nlb_dns_name>
+
+curl -i --http1.1 \
+  -H 'Host: tasteam.kr' \
+  -H 'Connection: Upgrade' \
+  -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Key: SGVsbG8sIHdvcmxkIQ==' \
+  -H 'Sec-WebSocket-Version: 13' \
+  "http://${PUBLIC_NLB_DNS}/ws"
+```
+
+- 기대 결과:
+  - handshake 가 성립하거나 최소한 ingress/backend 측 5xx 없이 응답
+  - 실제 애플리케이션 heartbeat 주기가 Cloudflare 100초, NLB 350초보다 짧게 설정되어 있어야 한다.
+- 실패 징후:
+  - 짧은 시간 내 connection reset
+- 롤백 / 정리:
+  - `/ws` ingress annotation, 앱 heartbeat 주기, NLB listener 대상 포트를 다시 점검한다.
+
+### Step 6-6. etcd backup 검증
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: snapshot 파일이 실제로 유효한지 확인한다.
+- 명령어:
+
+```bash
+sudo ETCDCTL_API=3 etcdctl snapshot save /tmp/etcd-verify.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+sudo ETCDCTL_API=3 etcdctl snapshot status /tmp/etcd-verify.db --write-out=table
+aws s3 cp /tmp/etcd-verify.db \
+  "s3://${BACKUP_BUCKET}/k8s/prod/etcd/etcd-verify.db" \
+  --sse aws:kms
+```
+
+- 기대 결과:
+  - snapshot status table 출력
+  - S3 업로드 성공
+- 실패 징후:
+  - status 출력 실패
+- 롤백 / 정리:
+  - cp 노드 디스크와 TLS cert 경로를 점검한다.
+
+## 5. 완료 기준
+
+### Track A 완료 기준
+
+- `kubectl get nodes` 가 `cp1 + worker2` 모두 `Ready`
+- API NLB target group 이 `healthy`
+- ingress NLB `30080/30443` target group 이 `healthy`
+- Calico / Metrics Server / ingress-nginx / Linkerd / ArgoCD / Sealed Secrets 모두 정상
+- `app-prod` Spring/FastAPI health check 성공
+- DB `5432`, Redis `6379` reachability 확인
+- `/api`, `/ai` ingress 라우팅 성공
+- `/ws` handshake 또는 비-5xx 응답 확인
+- HPA 메트릭 조회 성공
+- Sealed Secrets key / etcd snapshot 백업 성공
+
+### Track B 완료 기준
+
+- control-plane 3대가 internal API NLB 뒤에서 정상 동작
+- worker 4대 분포가 `2a x2, 2b x1, 2c x1`
+- worker 1대 drain 시 서비스 유지
+- control-plane 1대 중단 시에도 `kubectl` 지속 가능
+- 중단했던 control-plane node 가 복구 후 다시 `Ready`
+- etcd snapshot 생성 및 업로드 성공
+
+## 6. 이번에 하지 않는 것
+
+- Cloudflare origin 전환
+- v2 `tasteam.kr` 실트래픽 절체
+- shared monitoring stack 이전
+- `app-dev`, `app-stg` namespace 운영화
+- IRSA / External Secrets / Cluster Autoscaler / monitoring PVC 고도화
+
+## 7. 부록: 자주 막히는 포인트
+
+- `2b` subnet 추가 시 배열 재정렬 금지
+- `private_subnet_ids[1]` 는 `2c`, `private_subnet_ids[2]` 가 `2b`
+- 새 worker SG 를 RDS/Redis SG 에 추가하지 않으면 앱이 뜨더라도 DB/Redis 연결 실패
+- public NLB 는 `30080/30443`, internal API NLB 는 `6443` 로 target attachment 를 맞춰야 한다
+- `http_put_response_hop_limit = 2` 를 낮추면 pod 내부 AWS SDK 자격증명 조회가 깨질 수 있다
+- Track A 는 리허설이다. Cloudflare 나 기존 Caddy 라우팅은 건드리지 않는다
+
+## 8. 공식 문서 참고
+
+- Kubernetes kubeadm 설치: <https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/>
+- Kubernetes HA control plane 개요: <https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/high-availability/>
+- Calico 설치 문서: <https://docs.tigera.io/calico/latest/getting-started/kubernetes/>
+- ingress-nginx 문서: <https://kubernetes.github.io/ingress-nginx/>
+- Metrics Server 문서: <https://github.com/kubernetes-sigs/metrics-server>
+- Linkerd 설치 문서: <https://linkerd.io/2-edge/getting-started/>
+- ArgoCD 설치 문서: <https://argo-cd.readthedocs.io/en/stable/getting_started/>
+- Sealed Secrets 문서: <https://github.com/bitnami-labs/sealed-secrets>
