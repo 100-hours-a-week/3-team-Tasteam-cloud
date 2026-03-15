@@ -806,69 +806,32 @@ kubectl rollout status statefulset/argocd-application-controller -n argocd --tim
 kubectl delete namespace argocd
 ```
 
-### Step 3-8. Sealed Secrets 설치
+### Step 3-8. External Secrets Operator (ESO) 설치
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
-- 목적: `app-prod` 민감값을 Git/파일 기반으로 안전하게 다루기 위한 복호화 컨트롤러를 설치한다.
+- 목적: AWS SSM Parameter Store에 저장된 기존 민감값을 그대로 재사용하기 위해 ESO를 설치한다. ESO는 ExternalSecret 리소스를 감지해 SSM 값을 Kubernetes Secret으로 자동 동기화한다. EC2 노드의 IAM 인스턴스 프로파일을 통해 SSM 접근 권한을 획득한다.
 - 명령어:
 
 ```bash
-helm repo add sealed-secrets https://bitnami-labs.github.io/sealed-secrets
+helm repo add external-secrets https://charts.external-secrets.io
 helm repo update
 
-helm upgrade --install sealed-secrets sealed-secrets/sealed-secrets \
-  -n kube-system
+helm upgrade --install external-secrets external-secrets/external-secrets \
+  -n external-secrets --create-namespace \
+  --set installCRDs=true
 
-kubectl rollout status deployment/sealed-secrets -n kube-system --timeout=5m
-kubectl get deployment sealed-secrets -n kube-system
+kubectl rollout status deployment/external-secrets -n external-secrets --timeout=5m
+kubectl get deployment -n external-secrets
 ```
 
 - 기대 결과:
-  - controller pod `Running`
+  - `external-secrets`, `external-secrets-cert-controller`, `external-secrets-webhook` pod `Running`
 - 실패 징후:
-  - deployment 가 생성되지 않음
+  - CRD 설치 실패 (`kubectl get crd | grep external-secrets.io` 로 확인)
 - 롤백 / 정리:
-  - `helm uninstall sealed-secrets -n kube-system`
+  - `helm uninstall external-secrets -n external-secrets`
 
-### Step 3-8-1. `cp-2a` 에서 `kubeseal` 실행 준비
-
-- 실행 위치: `prod-ec2-k8s-cp-2a`
-- 목적: Phase 4 Sealed Secret 생성을 `cp-2a` 에서 기본 경로로 처리할 수 있게 한다.
-- 명령어:
-
-```bash
-KUBESEAL_VERSION=$(
-  curl -fsSL https://api.github.com/repos/bitnami-labs/sealed-secrets/tags \
-    | grep -m1 -o '"name": "v[^"]*"' \
-    | cut -d'"' -f4 \
-    | sed 's/^v//'
-)
-
-curl -fsSLo /tmp/kubeseal.tar.gz \
-  "https://github.com/bitnami-labs/sealed-secrets/releases/download/v${KUBESEAL_VERSION}/kubeseal-${KUBESEAL_VERSION}-linux-amd64.tar.gz"
-tar -xzf /tmp/kubeseal.tar.gz -C /tmp kubeseal
-sudo install -m 0755 /tmp/kubeseal /usr/local/bin/kubeseal
-
-export KUBECONFIG=$HOME/.kube/config
-kubeseal --version
-kubeseal --fetch-cert \
-  --controller-name=sealed-secrets \
-  --controller-namespace=kube-system > "$HOME/sealed-secrets-prod.pem"
-```
-
-- 기대 결과:
-  - `kubeseal` CLI 가 `cp-2a` 에 설치된다.
-  - `sealed-secrets-prod.pem` 생성
-- 실패 징후:
-  - GitHub release 다운로드 실패
-  - `kubeseal --fetch-cert` 실패
-- 롤백 / 정리:
-  - `sudo rm -f /usr/local/bin/kubeseal "$HOME/sealed-secrets-prod.pem"` 후 kubeconfig / API endpoint / controller 상태를 점검한다.
-
-- 비고:
-  - 로컬 작업 PC 에서 `kubeseal` 을 계속 쓰고 싶다면 Phase 0 의 `brew install kubeseal` 과 Step 3-1 의 `admin.conf` 복사 경로를 사용한다.
-
-### Step 3-8-2. Track A addon 상태 / 버전 캡처
+### Step 3-8-1. Track A addon 상태 / 버전 캡처
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
 - 목적: Track B 와 이후 재설치 시 Track A 에서 검증된 chart/image 조합을 기준으로 재현한다.
@@ -880,33 +843,23 @@ helm list -A | tee /root/track-a-helm-releases.txt
 kubectl get deployment,statefulset -A \
   -o custom-columns='NAMESPACE:.metadata.namespace,KIND:.kind,NAME:.metadata.name,IMAGES:.spec.template.spec.containers[*].image' \
   | tee /root/track-a-addon-images.txt
-
-kubeseal --version | tee /root/track-a-kubeseal-version.txt
 ```
 
 - 기대 결과:
-  - Helm release 목록, 핵심 addon 이미지 목록, `kubeseal` 버전이 파일로 남는다.
+  - Helm release 목록, 핵심 addon 이미지 목록이 파일로 남는다.
 - 실패 징후:
   - `helm list -A` 실패
   - 이미지 목록 추출 실패
 - 롤백 / 정리:
-  - `/root/track-a-helm-releases.txt`, `/root/track-a-addon-images.txt`, `/root/track-a-kubeseal-version.txt` 를 삭제하고 다시 캡처한다.
+  - `/root/track-a-helm-releases.txt`, `/root/track-a-addon-images.txt` 를 삭제하고 다시 캡처한다.
 
 ### Step 3-9. 초기 백업
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
-- 목적: Track A 직후 Sealed Secrets 키와 etcd snapshot 을 백업한다.
+- 목적: Track A 직후 etcd snapshot 을 백업한다. ESO는 SSM에서 실시간으로 Secret을 동기화하므로 별도 키 백업이 불필요하다.
 - 명령어:
 
 ```bash
-kubectl get secret -n kube-system \
-  -l sealedsecrets.bitnami.com/sealed-secrets-key \
-  -o yaml > /tmp/sealed-secrets-key-backup.yaml
-
-aws s3 cp /tmp/sealed-secrets-key-backup.yaml \
-  "s3://${BACKUP_BUCKET}/k8s/prod/sealed-secrets/sealed-secrets-key-backup.yaml" \
-  --sse aws:kms
-
 sudo ETCDCTL_API=3 etcdctl snapshot save /tmp/etcd-track-a.db \
   --endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/kubernetes/pki/etcd/ca.crt \
@@ -920,12 +873,12 @@ aws s3 cp /tmp/etcd-track-a.db \
 ```
 
 - 기대 결과:
-  - sealed secret key 와 etcd snapshot 이 S3 에 저장된다.
+  - etcd snapshot 이 S3 에 저장된다.
 - 실패 징후:
   - S3 업로드 실패
   - etcdctl TLS 오류
 - 롤백 / 정리:
-  - 백업이 하나라도 실패하면 Track A 완료로 간주하지 않는다.
+  - 백업이 실패하면 Track A 완료로 간주하지 않는다.
 
 ## Phase 4. `app-prod` 배포
 
@@ -952,94 +905,118 @@ kubectl get namespace app-prod --show-labels
 kubectl delete namespace app-prod
 ```
 
-### Step 4-2. SSM 값을 runtime env 파일로 추출
-
-- 실행 위치: `로컬 작업 PC` 또는 `prod-ec2-k8s-cp-2a`
-- 목적: 현재 prod 런타임 값을 그대로 재사용한다.
-- 명령어:
-
-```bash
-mkdir -p "$HOME/tasteam-k8s/app-prod"
-cd "$HOME/tasteam-k8s/app-prod"
-
-aws ssm get-parameters-by-path \
-  --region "${AWS_REGION}" \
-  --path /prod/tasteam/backend \
-  --recursive \
-  --with-decryption \
-  --query "Parameters[*].[Name,Value]" \
-  --output text \
-  | awk -F'\t' '{print $1"="$2}' \
-  | sed 's#.*/##' > backend-runtime.env
-
-aws ssm get-parameters-by-path \
-  --region "${AWS_REGION}" \
-  --path /prod/tasteam/fastapi \
-  --recursive \
-  --with-decryption \
-  --query "Parameters[*].[Name,Value]" \
-  --output text \
-  | awk -F'\t' '{print $1"="$2}' \
-  | sed 's#.*/##' > fastapi-runtime.env
-
-cat <<'EOF' > app-prod-config.env
-SPRING_PROFILES_ACTIVE=prod
-FASTAPI_URL=http://fastapi-svc.app-prod.svc.cluster.local
-TZ=Asia/Seoul
-EOF
-```
-
-- 기대 결과:
-  - `backend-runtime.env`, `fastapi-runtime.env`, `app-prod-config.env` 생성
-- 실패 징후:
-  - SSM path 값 일부 누락
-  - `.env` 안 줄바꿈 깨짐
-- 롤백 / 정리:
-  - 기존 env 파일을 삭제하고 다시 추출한다.
-
-### Step 4-3. Sealed Secret / ConfigMap 생성
+### Step 4-2. ClusterSecretStore 설정
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
-- 목적: 민감값은 Sealed Secret, 비민감 운영값은 ConfigMap 으로 생성한다.
+- 목적: ESO가 AWS SSM Parameter Store에 접근할 수 있도록 ClusterSecretStore를 생성한다. EC2 노드의 IAM 인스턴스 프로파일을 통해 자격증명을 자동으로 획득한다 (`http_put_response_hop_limit=2` 설정으로 Pod에서 IMDS 접근 가능).
 - 명령어:
 
 ```bash
-cd "$HOME/tasteam-k8s/app-prod"
-export KUBECONFIG=$HOME/.kube/config
+kubectl apply -f - <<'EOF'
+apiVersion: external-secrets.io/v1beta1
+kind: ClusterSecretStore
+metadata:
+  name: aws-ssm
+spec:
+  provider:
+    aws:
+      service: ParameterStore
+      region: ap-northeast-2
+EOF
 
-kubectl create configmap app-prod-config \
-  -n app-prod \
-  --from-env-file=app-prod-config.env \
-  --dry-run=client -o yaml > 10-app-prod-configmap.yaml
-
-kubectl create secret generic spring-boot-runtime \
-  -n app-prod \
-  --from-env-file=backend-runtime.env \
-  --dry-run=client -o yaml \
-  | kubeseal \
-      --controller-name=sealed-secrets \
-      --controller-namespace=kube-system \
-      --format yaml > 20-spring-boot-runtime.sealed.yaml
-
-kubectl create secret generic fastapi-runtime \
-  -n app-prod \
-  --from-env-file=fastapi-runtime.env \
-  --dry-run=client -o yaml \
-  | kubeseal \
-      --controller-name=sealed-secrets \
-      --controller-namespace=kube-system \
-      --format yaml > 21-fastapi-runtime.sealed.yaml
+kubectl get clustersecretstore aws-ssm
+kubectl describe clustersecretstore aws-ssm
 ```
 
 - 기대 결과:
-  - ConfigMap 1개, SealedSecret 2개 YAML 생성
+  - `ClusterSecretStore/aws-ssm` STATUS: `Valid`
 - 실패 징후:
-  - `kubeseal` controller 연결 실패
+  - STATUS: `InvalidProvider` — IAM 권한 또는 region 확인
 - 롤백 / 정리:
-  - 생성된 YAML 파일을 삭제하고 다시 만든다.
+  - `kubectl delete clustersecretstore aws-ssm`
 
-- 비고:
-  - 로컬 작업 PC 에서 수행하려면 Step 3-8-1 의 비고대로 `kubeseal` 과 `KUBECONFIG` 를 준비한 뒤 동일 명령을 사용한다.
+### Step 4-3. ExternalSecret / ConfigMap 생성
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: SSM Parameter Store의 `/prod/tasteam/backend/*`, `/prod/tasteam/fastapi/*` 경로 값을 Kubernetes Secret으로 자동 동기화한다. 비민감 운영값은 ConfigMap으로 생성한다.
+- 명령어:
+
+```bash
+# ConfigMap (비민감 운영값)
+kubectl create configmap app-prod-config \
+  -n app-prod \
+  --from-literal=SPRING_PROFILES_ACTIVE=prod \
+  --from-literal=FASTAPI_URL=http://fastapi-svc.app-prod.svc.cluster.local \
+  --from-literal=TZ=Asia/Seoul \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# ExternalSecret: spring-boot-runtime (SSM /prod/tasteam/backend/*)
+kubectl apply -f - <<'EOF'
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: spring-boot-runtime
+  namespace: app-prod
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: spring-boot-runtime
+    creationPolicy: Owner
+  dataFrom:
+    - find:
+        path: /prod/tasteam/backend
+        name:
+          regexp: ".*"
+      rewrite:
+        - regexp:
+            source: "/prod/tasteam/backend/(.*)"
+            target: "$1"
+EOF
+
+# ExternalSecret: fastapi-runtime (SSM /prod/tasteam/fastapi/*)
+kubectl apply -f - <<'EOF'
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: fastapi-runtime
+  namespace: app-prod
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: fastapi-runtime
+    creationPolicy: Owner
+  dataFrom:
+    - find:
+        path: /prod/tasteam/fastapi
+        name:
+          regexp: ".*"
+      rewrite:
+        - regexp:
+            source: "/prod/tasteam/fastapi/(.*)"
+            target: "$1"
+EOF
+
+# 동기화 상태 확인
+kubectl get externalsecret -n app-prod
+kubectl get secret spring-boot-runtime fastapi-runtime -n app-prod
+```
+
+- 기대 결과:
+  - `ExternalSecret` STATUS: `SecretSynced`
+  - `spring-boot-runtime`, `fastapi-runtime` Secret 자동 생성
+  - `app-prod-config` ConfigMap 생성
+- 실패 징후:
+  - STATUS: `SecretSyncedError` — `kubectl describe externalsecret <name> -n app-prod` 로 원인 확인
+  - IAM 권한 부족: `ssm:GetParametersByPath`, `ssm:DescribeParameters`, `kms:Decrypt` 필요
+- 롤백 / 정리:
+  - `kubectl delete externalsecret spring-boot-runtime fastapi-runtime -n app-prod`
+  - ExternalSecret 삭제 시 `creationPolicy: Owner` 이므로 연결된 Secret도 함께 삭제된다.
 
 ### Step 4-4. `app-prod` 워크로드 YAML 작성
 
