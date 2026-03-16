@@ -63,7 +63,7 @@
 | public ingress NLB SG | `prod-sg-k8s-ingress-nlb` |
 | node IAM role | `prod-k8s-node-role` |
 | node IAM profile | `prod-k8s-node-instance-profile` |
-| etcd / sealed-secret backup prefix | `s3://<BACKUP_BUCKET>/k8s/prod/` |
+| etcd backup prefix | `s3://<BACKUP_BUCKET>/k8s/prod/` |
 
 ## 4. 실행 위치 약속
 
@@ -144,7 +144,6 @@ aws sts get-caller-identity
 aws s3 ls "s3://${BACKUP_BUCKET}" || true
 
 brew install helm jq yq kubectx || true
-brew install kubeseal || true
 ```
 
 - 기대 결과:
@@ -541,7 +540,8 @@ localAPIEndpoint:
 nodeRegistration:
   criSocket: unix:///run/containerd/containerd.sock
   kubeletExtraArgs:
-    node-ip: ${CP1_PRIVATE_IP}
+    - name: node-ip
+      value: ${CP1_PRIVATE_IP}
 ---
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
@@ -573,7 +573,7 @@ echo "$CERT_KEY" | tee /root/certificate-key.txt
 echo "Track A worker join command:"
 cat /root/join-worker.sh
 
-# 로컬 kubectl / kubeseal 을 쓸 계획이면 admin.conf 내용을 안전한 로컬 파일로 복사해둔다.
+# 로컬 kubectl 을 쓸 계획이면 admin.conf 내용을 안전한 로컬 파일로 복사해둔다.
 sudo cat /etc/kubernetes/admin.conf
 
 # 로컬 작업 PC에서 API target health 재확인
@@ -587,10 +587,16 @@ aws elbv2 describe-target-health \
   - `kubectl get nodes` 시 cp 노드 1대 확인
   - worker join command 와 certificate key 확보
   - API NLB target group 이 `healthy` 로 전환된다.
+- 주의사항:
+  - **v1beta4 kubeletExtraArgs 형식**: v1beta4 부터 `kubeletExtraArgs` 는 map 이 아닌 배열이다. `[{name: node-ip, value: <IP>}]` 형식을 사용해야 한다. map 형태(`{node-ip: <IP>}`)를 쓰면 `json: cannot unmarshal object into Go struct field` 에러가 발생한다.
+  - **NLB 초기 접속 지연**: NLB target group 이 healthy 가 되기 전에 `controlPlaneEndpoint` 로 NLB DNS 를 사용하면 init 이 timeout 될 수 있다. 이 경우 `controlPlaneEndpoint` 를 CP private IP 로 직접 지정하고, NLB DNS 는 `certSANs` 에만 넣어 인증서에 포함시킨 뒤, 클러스터 안정화 후 kubeconfig 의 server 를 NLB DNS 로 교체할 수 있다.
+  - **SSM 세션에서 kubectl 오류**: SSM 으로 `sudo su` 접속 시 `$HOME` 이 `/root` 가 아닐 수 있어 `~/.kube/config` 를 찾지 못한다. `export KUBECONFIG=/etc/kubernetes/admin.conf` 를 명시하거나 `/root/.kube/config` 로 복사한다.
+  - **kubeadm reset 후 kubeconfig 갱신 필수**: `kubeadm reset` + 재 `init` 하면 새 CA 인증서가 생성된다. 기존 `~/.kube/config` 에 이전 CA 가 남아 `x509: certificate signed by unknown authority` 에러가 발생하므로 반드시 `cp /etc/kubernetes/admin.conf ~/.kube/config` 를 재실행해야 한다.
 - 실패 징후:
   - `timed out waiting for the condition`
   - `controlPlaneEndpoint` 접근 실패
   - API target health 가 계속 `unhealthy`
+  - `x509: certificate signed by unknown authority` — kubeconfig 미갱신
 - 롤백 / 정리:
 
 ```bash
@@ -645,7 +651,6 @@ kind: Installation
 metadata:
   name: default
 spec:
-  kubernetesProvider: kubeadm
   calicoNetwork:
     ipPools:
       - cidr: 10.244.0.0/16
@@ -668,9 +673,20 @@ kubectl get pods -n calico-system -o wide
 - 기대 결과:
   - `calico-system` pod 들이 `Running`
   - `kubectl get nodes` 가 전부 `Ready`
+- 주의사항:
+  - **`kubernetesProvider: kubeadm` 사용 금지**: Calico Installation CRD 의 `spec.kubernetesProvider` 에 `kubeadm` 은 유효한 값이 아니다 (EKS, GKE, AKS 등만 허용). 넣으면 operator 가 `validation failed` 로 거부한다. kubeadm 환경에서는 이 필드를 생략한다.
+  - **Security Group 포트 개방 필수**: Calico 가 정상 동작하려면 아래 포트가 노드 간 양방향 열려 있어야 한다. Terraform 에서 cp↔cp, cp↔worker, worker↔worker 방향 모두 추가한다.
+    - **5473/tcp** (Typha): calico-node → Typha 통신. 미개방 시 `dial tcp <IP>:5473: i/o timeout` 에러와 함께 calico-node CrashLoopBackOff.
+    - **179/tcp** (BGP): VXLANCrossSubnet 모드에서도 BGP peering 이 필요하다. 미개방 시 BGP 세션 수립 실패.
+    - **4789/udp** (VXLAN): VXLAN 데이터 플레인 트래픽. 이미 기존 SG 에 있을 수 있으나 반드시 확인한다.
+  - **CSR 수동 승인**: `serverTLSBootstrap: true` 사용 시 kubelet serving cert CSR 이 Pending 상태로 쌓인다. `kubectl get csr -o name | xargs kubectl certificate approve` 로 일괄 승인해야 노드가 완전히 Ready 로 전환된다.
+  - **Worker NotReady + `cni plugin not initialized`**: CNI config 파일(`/etc/cni/net.d/10-calico.conflist`)과 바이너리(`/opt/cni/bin/calico`)가 존재하는데도 worker 가 NotReady 인 경우, containerd 가 CNI 설정을 인식하지 못한 것이다. `systemctl restart containerd && systemctl restart kubelet` 로 해결된다.
+  - **CrashLoopBackOff 백오프 카운터 초기화**: 여러 번 init/reset 을 반복하면 containerd 에 이전 컨테이너의 restart 카운터가 남아 즉시 CrashLoopBackOff 에 빠질 수 있다. `crictl rmp -af && systemctl restart containerd && systemctl start kubelet` 로 카운터를 리셋한다.
 - 실패 징후:
   - node 계속 `NotReady`
   - `BIRD is not ready` 류 메시지 반복
+  - `dial tcp <IP>:5473: i/o timeout` — SG 5473 미개방
+  - `cni plugin not initialized` — containerd 가 CNI 미인식
 - 롤백 / 정리:
 
 ```bash
@@ -700,8 +716,11 @@ kubectl top nodes
 
 - 기대 결과:
   - `kubectl top nodes` 가 값 반환
+- 주의사항:
+  - **Helm `--set` 콤마 이스케이프**: `--set args[1]=--kubelet-preferred-address-types=InternalIP,Hostname` 에서 콤마가 Helm 의 값 구분자로 해석된다. `InternalIP\,Hostname` 으로 이스케이프하거나 `--set-string` 을 사용한다.
 - 실패 징후:
   - `Metrics API not available`
+  - `key "Hostname" has no value` — 콤마 미이스케이프
 - 롤백 / 정리:
 
 ```bash
@@ -816,8 +835,10 @@ kubectl delete namespace argocd
 helm repo add external-secrets https://charts.external-secrets.io
 helm repo update
 
+kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
+
 helm upgrade --install external-secrets external-secrets/external-secrets \
-  -n external-secrets --create-namespace \
+  -n external-secrets \
   --set installCRDs=true
 
 kubectl rollout status deployment/external-secrets -n external-secrets --timeout=5m
@@ -827,11 +848,46 @@ kubectl get deployment -n external-secrets
 - 기대 결과:
   - `external-secrets`, `external-secrets-cert-controller`, `external-secrets-webhook` pod `Running`
 - 실패 징후:
+  - deployment 가 생성되지 않음
   - CRD 설치 실패 (`kubectl get crd | grep external-secrets.io` 로 확인)
 - 롤백 / 정리:
   - `helm uninstall external-secrets -n external-secrets`
+  - `kubectl delete namespace external-secrets`
 
-### Step 3-8-1. Track A addon 상태 / 버전 캡처
+### Step 3-8-1. ClusterSecretStore 생성
+
+- 실행 위치: `prod-ec2-k8s-cp-2a`
+- 목적: ESO 가 AWS Parameter Store 에 접근할 수 있도록 ClusterSecretStore 를 생성한다.
+- 전제: 노드 IAM Role 에 `ssm:GetParameter*` 권한이 이미 포함되어 있다 (Step 1-2 IAM 정책 참고).
+- 명령어:
+
+```bash
+export KUBECONFIG=$HOME/.kube/config
+
+cat <<'EOF' | kubectl apply -f -
+apiVersion: external-secrets.io/v1beta1
+kind: ClusterSecretStore
+metadata:
+  name: aws-ssm
+spec:
+  provider:
+    aws:
+      service: ParameterStore
+      region: ap-northeast-2
+EOF
+
+kubectl get clustersecretstore aws-ssm
+```
+
+- 기대 결과:
+  - ClusterSecretStore `aws-ssm` 이 `Valid` 상태
+- 실패 징후:
+  - IAM 권한 부족으로 `SecretStore is not ready`
+  - ESO controller 가 아직 Running 이 아닌 경우
+- 롤백 / 정리:
+  - `kubectl delete clustersecretstore aws-ssm` 후 IAM 권한 / ESO 상태를 점검한다.
+
+### Step 3-8-2. Track A addon 상태 / 버전 캡처
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
 - 목적: Track B 와 이후 재설치 시 Track A 에서 검증된 chart/image 조합을 기준으로 재현한다.
@@ -843,20 +899,23 @@ helm list -A | tee /root/track-a-helm-releases.txt
 kubectl get deployment,statefulset -A \
   -o custom-columns='NAMESPACE:.metadata.namespace,KIND:.kind,NAME:.metadata.name,IMAGES:.spec.template.spec.containers[*].image' \
   | tee /root/track-a-addon-images.txt
+
+kubectl get clustersecretstore -o yaml | tee /root/track-a-eso-config.txt
 ```
 
 - 기대 결과:
-  - Helm release 목록, 핵심 addon 이미지 목록이 파일로 남는다.
+  - Helm release 목록, 핵심 addon 이미지 목록, ESO ClusterSecretStore 설정이 파일로 남는다.
 - 실패 징후:
   - `helm list -A` 실패
   - 이미지 목록 추출 실패
 - 롤백 / 정리:
-  - `/root/track-a-helm-releases.txt`, `/root/track-a-addon-images.txt` 를 삭제하고 다시 캡처한다.
+  - `/root/track-a-helm-releases.txt`, `/root/track-a-addon-images.txt`, `/root/track-a-eso-config.txt` 를 삭제하고 다시 캡처한다.
 
 ### Step 3-9. 초기 백업
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
-- 목적: Track A 직후 etcd snapshot 을 백업한다. ESO는 SSM에서 실시간으로 Secret을 동기화하므로 별도 키 백업이 불필요하다.
+- 목적: Track A 직후 etcd snapshot 을 백업한다.
+- 비고: ESO 는 Parameter Store 에서 값을 동기화하므로 별도 키 백업이 불필요하다. etcd 만 백업한다.
 - 명령어:
 
 ```bash
@@ -905,43 +964,17 @@ kubectl get namespace app-prod --show-labels
 kubectl delete namespace app-prod
 ```
 
-### Step 4-2. ClusterSecretStore 설정
-
-- 실행 위치: `prod-ec2-k8s-cp-2a`
-- 목적: ESO가 AWS SSM Parameter Store에 접근할 수 있도록 ClusterSecretStore를 생성한다. EC2 노드의 IAM 인스턴스 프로파일을 통해 자격증명을 자동으로 획득한다 (`http_put_response_hop_limit=2` 설정으로 Pod에서 IMDS 접근 가능).
-- 명령어:
-
-```bash
-kubectl apply -f - <<'EOF'
-apiVersion: external-secrets.io/v1beta1
-kind: ClusterSecretStore
-metadata:
-  name: aws-ssm
-spec:
-  provider:
-    aws:
-      service: ParameterStore
-      region: ap-northeast-2
-EOF
-
-kubectl get clustersecretstore aws-ssm
-kubectl describe clustersecretstore aws-ssm
-```
-
-- 기대 결과:
-  - `ClusterSecretStore/aws-ssm` STATUS: `Valid`
-- 실패 징후:
-  - STATUS: `InvalidProvider` — IAM 권한 또는 region 확인
-- 롤백 / 정리:
-  - `kubectl delete clustersecretstore aws-ssm`
-
-### Step 4-3. ExternalSecret / ConfigMap 생성
+### Step 4-2. ExternalSecret / ConfigMap 생성
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
 - 목적: SSM Parameter Store의 `/prod/tasteam/backend/*`, `/prod/tasteam/fastapi/*` 경로 값을 Kubernetes Secret으로 자동 동기화한다. 비민감 운영값은 ConfigMap으로 생성한다.
+- 전제: Step 3-8-1 에서 ClusterSecretStore `aws-ssm` 이 `Valid` 상태여야 한다.
 - 명령어:
 
 ```bash
+# ClusterSecretStore 상태 확인 (Step 3-8-1 에서 이미 생성됨)
+kubectl get clustersecretstore aws-ssm
+
 # ConfigMap (비민감 운영값)
 kubectl create configmap app-prod-config \
   -n app-prod \
@@ -1018,7 +1051,7 @@ kubectl get secret spring-boot-runtime fastapi-runtime -n app-prod
   - `kubectl delete externalsecret spring-boot-runtime fastapi-runtime -n app-prod`
   - ExternalSecret 삭제 시 `creationPolicy: Owner` 이므로 연결된 Secret도 함께 삭제된다.
 
-### Step 4-4. `app-prod` 워크로드 YAML 작성
+### Step 4-3. `app-prod` 워크로드 YAML 작성
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
 - 목적: Spring/FastAPI 배포와 서비스 노출 리소스를 만든다.
@@ -1276,7 +1309,7 @@ grep -n 'image:' 30-app-prod-workloads.yaml
 - 롤백 / 정리:
   - `30-app-prod-workloads.yaml.tpl`, `30-app-prod-workloads.yaml` 만 삭제하면 된다.
 
-### Step 4-5. `app-prod` apply
+### Step 4-4. `app-prod` apply
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
 - 목적: prod 애플리케이션 리소스를 실제 cluster 에 반영한다.
@@ -1286,8 +1319,8 @@ grep -n 'image:' 30-app-prod-workloads.yaml
 cd "$HOME/tasteam-k8s/app-prod"
 
 kubectl apply -f 10-app-prod-configmap.yaml
-kubectl apply -f 20-spring-boot-runtime.sealed.yaml
-kubectl apply -f 21-fastapi-runtime.sealed.yaml
+kubectl apply -f 20-spring-boot-runtime-es.yaml
+kubectl apply -f 21-fastapi-runtime-es.yaml
 kubectl apply -f 30-app-prod-workloads.yaml
 
 kubectl rollout status deployment/spring-boot -n app-prod --timeout=10m
@@ -1308,12 +1341,12 @@ kubectl get hpa -n app-prod
 
 ```bash
 kubectl delete -f 30-app-prod-workloads.yaml
-kubectl delete -f 21-fastapi-runtime.sealed.yaml
-kubectl delete -f 20-spring-boot-runtime.sealed.yaml
+kubectl delete -f 21-fastapi-runtime-es.yaml
+kubectl delete -f 20-spring-boot-runtime-es.yaml
 kubectl delete -f 10-app-prod-configmap.yaml
 ```
 
-### Step 4-6. 내부 / 외부 smoke test
+### Step 4-5. 내부 / 외부 smoke test
 
 - 실행 위치: `prod-ec2-k8s-cp-2a` 및 `검증 PC`
 - 목적: 절체 전 public NLB DNS 와 Host 헤더로 외부 라우팅을 검증한다.
@@ -1647,13 +1680,13 @@ aws s3 cp /tmp/etcd-verify.db \
 - `kubectl get nodes` 가 `cp1 + worker2` 모두 `Ready`
 - API NLB target group 이 `healthy`
 - ingress NLB `30080/30443` target group 이 `healthy`
-- Calico / Metrics Server / ingress-nginx / Linkerd / ArgoCD / Sealed Secrets 모두 정상
+- Calico / Metrics Server / ingress-nginx / Linkerd / ArgoCD / External Secrets Operator 모두 정상
 - `app-prod` Spring/FastAPI health check 성공
 - DB `5432`, Redis `6379` reachability 확인
 - `/api`, `/ai` ingress 라우팅 성공
 - `/ws` handshake 또는 비-5xx 응답 확인
 - HPA 메트릭 조회 성공
-- Sealed Secrets key / etcd snapshot 백업 성공
+- etcd snapshot 백업 성공
 
 ### Track B 완료 기준
 
@@ -1670,7 +1703,7 @@ aws s3 cp /tmp/etcd-verify.db \
 - v2 `tasteam.kr` 실트래픽 절체
 - shared monitoring stack 이전
 - `app-dev`, `app-stg` namespace 운영화
-- IRSA / External Secrets / Cluster Autoscaler / monitoring PVC 고도화
+- IRSA / Cluster Autoscaler / monitoring PVC 고도화
 
 ## 7. 부록: 자주 막히는 포인트
 
@@ -1690,4 +1723,4 @@ aws s3 cp /tmp/etcd-verify.db \
 - Metrics Server 문서: <https://github.com/kubernetes-sigs/metrics-server>
 - Linkerd 설치 문서: <https://linkerd.io/2-edge/getting-started/>
 - ArgoCD 설치 문서: <https://argo-cd.readthedocs.io/en/stable/getting_started/>
-- Sealed Secrets 문서: <https://github.com/bitnami-labs/sealed-secrets>
+- External Secrets Operator 문서: <https://external-secrets.io/>
