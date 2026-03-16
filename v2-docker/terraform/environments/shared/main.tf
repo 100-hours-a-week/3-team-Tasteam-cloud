@@ -887,6 +887,36 @@ resource "aws_ssm_parameter" "monitoring_postgres_dsn_stg" {
 }
 
 # ──────────────────────────────────────────────
+# IAM — for-jayvi EC2 Instance Profile (S3 Full Access)
+# 수동 생성된 EC2 (i-0fa3c22a3f96e02b3)에 S3 전체 권한 부여
+# ──────────────────────────────────────────────
+
+resource "aws_iam_role" "jayvi_ec2" {
+  name = "jayvi-ec2-s3-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "jayvi_ec2_s3_full" {
+  role       = aws_iam_role.jayvi_ec2.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+}
+
+resource "aws_iam_instance_profile" "jayvi_ec2" {
+  name = "jayvi-ec2-instance-profile"
+  role = aws_iam_role.jayvi_ec2.name
+}
+
+# ──────────────────────────────────────────────
 # SES — 이메일 발송 (그룹 가입 인증)
 # ──────────────────────────────────────────────
 
