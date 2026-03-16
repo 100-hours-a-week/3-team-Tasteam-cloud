@@ -457,8 +457,11 @@ resource "aws_lb_target_group" "k8s_apiserver" {
   vpc_id      = module.vpc.vpc_id
 
   health_check {
-    port     = "6443"
-    protocol = "TCP"
+    port                = "6443"
+    protocol            = "TCP"
+    interval            = 10
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
   }
 }
 
