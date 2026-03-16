@@ -1,0 +1,182 @@
+---
+# 1. DNS 허용 — 반드시 먼저 적용
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# 2. 기본 Deny — namespace 내 모든 Ingress/Egress 차단
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# 3. Spring Boot — Ingress Controller에서 들어오는 트래픽 허용
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: spring-boot-allow-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: spring-boot
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# 4. FastAPI — Spring Boot에서만 접근 허용 + Ingress Controller
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fastapi-allow-spring-and-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: fastapi
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: spring-boot
+      ports:
+        - protocol: TCP
+          port: 8000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# 5. Spring Boot Egress — RDS, Redis, FastAPI, 외부 허용
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: spring-boot-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: spring-boot
+  policyTypes:
+    - Egress
+  egress:
+    # DNS (kube-system)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # FastAPI 내부 통신
+    - to:
+        - podSelector:
+            matchLabels:
+              app: fastapi
+      ports:
+        - protocol: TCP
+          port: 8000
+    # RDS (PostgreSQL) — prod VPC 내 private subnet
+    - to:
+        - ipBlock:
+            cidr: 10.11.0.0/16
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Redis — prod VPC 내
+    - to:
+        - ipBlock:
+            cidr: 10.11.0.0/16
+      ports:
+        - protocol: TCP
+          port: 6379
+    # 외부 HTTPS (ECR pull 등)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+---
+# 6. FastAPI Egress — RDS, Redis, 외부 API (OpenAI, Gemini 등)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fastapi-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: fastapi
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # RDS
+    - to:
+        - ipBlock:
+            cidr: 10.11.0.0/16
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Redis
+    - to:
+        - ipBlock:
+            cidr: 10.11.0.0/16
+      ports:
+        - protocol: TCP
+          port: 6379
+    # 외부 HTTPS (OpenAI, Gemini, HuggingFace, RunPod 등)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

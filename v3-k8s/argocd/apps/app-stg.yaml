@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tasteam-stg
+  namespace: argocd
+  labels:
+    env: stg
+    project: tasteam
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: tasteam
+
+  source:
+    repoURL: https://github.com/100-hours-a-week/3-team-Tasteam-cloud.git
+    targetRevision: main
+    path: v3-k8s/manifests/app/overlays/stg
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app-stg
+
+  # stg — 수동 동기화
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m0s
+
+  ignoreDifferences:
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jsonPointers:
+        - /status

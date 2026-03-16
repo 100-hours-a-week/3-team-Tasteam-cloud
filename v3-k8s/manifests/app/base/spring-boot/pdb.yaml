@@ -1,0 +1,9 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: spring-boot-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: spring-boot

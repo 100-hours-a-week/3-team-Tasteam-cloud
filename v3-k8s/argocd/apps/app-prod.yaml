@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tasteam-prod
+  namespace: argocd
+  labels:
+    env: prod
+    project: tasteam
+  # finalizer — ArgoCD에서 Application 삭제 시 클러스터 리소스도 정리
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: tasteam
+
+  source:
+    repoURL: https://github.com/100-hours-a-week/3-team-Tasteam-cloud.git
+    targetRevision: main
+    path: v3-k8s/manifests/app/overlays/prod
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app-prod
+
+  # prod — 수동 동기화 (자동 동기화 비활성화)
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true           # Sync 마지막에 삭제 수행 (안전)
+      - ApplyOutOfSyncOnly=true  # 변경된 리소스만 적용 (성능)
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m0s
+
+  # 헬스체크 타임아웃
+  ignoreDifferences:
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jsonPointers:
+        - /status
