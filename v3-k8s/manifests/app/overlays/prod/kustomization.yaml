@@ -6,6 +6,7 @@ namespace: app-prod
 resources:
   - ../../base
   - external-secret.yaml
+  - external-secret-fastapi.yaml
 
 patches:
   # Spring Boot — prod 이미지 태그 (CI가 이 파일의 newTag를 업데이트)
@@ -17,15 +18,14 @@ patches:
         path: /spec/replicas
         value: 2
 
-  # BE 파이프라인 검증 후 활성화
-  # # FastAPI — prod 이미지 태그
-  # - target:
-  #     kind: Deployment
-  #     name: fastapi
-  #   patch: |-
-  #     - op: replace
-  #       path: /spec/replicas
-  #       value: 1
+  # FastAPI — prod replicas
+  - target:
+      kind: Deployment
+      name: fastapi
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
 
   # Ingress host — prod 도메인
   - target:
@@ -48,18 +48,16 @@ images:
   - name: SPRING_BOOT_IMAGE
     newName: 203802643061.dkr.ecr.ap-northeast-2.amazonaws.com/tasteam-be
     newTag: e760f19
-  # BE 파이프라인 검증 후 활성화
-  # - name: FASTAPI_IMAGE
-  #   newName: 203802643061.dkr.ecr.ap-northeast-2.amazonaws.com/tasteam-ai
-  #   newTag: latest  # CI에서 git SHA로 교체
+  - name: FASTAPI_IMAGE
+    newName: 203802643061.dkr.ecr.ap-northeast-2.amazonaws.com/tasteam-ai
+    newTag: latest
 
 configMapGenerator:
   - name: spring-config
     behavior: replace
     literals:
       - profile=prod
-  # BE 파이프라인 검증 후 활성화
-  # - name: fastapi-config
-  #   behavior: replace
-  #   literals:
-  #     - env=prod
+  - name: fastapi-config
+    behavior: replace
+    literals:
+      - env=prod

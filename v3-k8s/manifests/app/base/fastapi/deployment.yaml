@@ -52,9 +52,14 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 15
             failureThreshold: 3
+          envFrom:
+            - secretRef:
+                name: fastapi-runtime
           env:
             - name: APP_ENV
               valueFrom:
                 configMapKeyRef:
                   name: fastapi-config
                   key: env
+            - name: PORT
+              value: "8000"

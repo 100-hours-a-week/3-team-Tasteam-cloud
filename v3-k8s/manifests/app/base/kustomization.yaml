@@ -3,7 +3,7 @@ kind: Kustomization
 
 resources:
   - spring-boot/
-  # - fastapi/  # BE 파이프라인 검증 후 활성화
+  - fastapi/
   - ingress-api.yaml
   - ingress-ws.yaml
   - networkpolicy.yaml
