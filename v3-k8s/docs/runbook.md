@@ -810,6 +810,62 @@ linkerd uninstall | kubectl delete -f - || true
 kubectl delete namespace linkerd || true
 ```
 
+### Step 3-6-1. ECR Credential Provider 설정
+
+- 실행 위치: **모든 노드** (cp + worker)
+- 목적: kubelet 이 IAM Role 기반으로 ECR 이미지를 pull 할 수 있도록 credential provider 를 설정한다.
+- 전제: EC2 에 `ecr:GetAuthorizationToken`, `ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer` 권한이 포함된 IAM Role 이 연결되어 있어야 한다.
+- 명령어 (노드별 SSM 접속 후 실행):
+
+```bash
+# 바이너리 설치
+sudo mkdir -p /usr/local/bin/ecr-credential-provider
+curl -Lo /tmp/ecr-credential-provider \
+  https://artifacts.k8s.io/binaries/cloud-provider-aws/v1.31.7/linux/amd64/ecr-credential-provider-linux-amd64
+sudo install -m 755 /tmp/ecr-credential-provider \
+  /usr/local/bin/ecr-credential-provider/ecr-credential-provider
+
+# 바이너리 확인 — ELF 64-bit 이어야 정상
+file /usr/local/bin/ecr-credential-provider/ecr-credential-provider
+
+# credential provider 설정 파일 생성
+sudo tee /etc/kubernetes/credential-provider.yaml > /dev/null << 'EOF'
+apiVersion: kubelet.config.k8s.io/v1
+kind: CredentialProviderConfig
+providers:
+  - name: ecr-credential-provider
+    matchImages:
+      - "*.dkr.ecr.*.amazonaws.com"
+    defaultCacheDuration: "12h"
+    apiVersion: credentialprovider.kubelet.k8s.io/v1
+EOF
+
+# kubelet 에 플래그 추가 (/etc/default/kubelet → 드롭인의 KUBELET_EXTRA_ARGS 로 참조됨)
+echo 'KUBELET_EXTRA_ARGS=--image-credential-provider-config=/etc/kubernetes/credential-provider.yaml --image-credential-provider-bin-dir=/usr/local/bin/ecr-credential-provider' \
+  | sudo tee /etc/default/kubelet
+
+# kubelet 재시작
+sudo systemctl restart kubelet
+
+# 적용 확인 — 프로세스 인자에 credential-provider 가 포함되어야 함
+ps aux | grep kubelet | grep credential
+```
+
+- 기대 결과:
+  - kubelet 프로세스에 `--image-credential-provider-config`, `--image-credential-provider-bin-dir` 플래그 확인
+  - ECR 이미지 pull 시 `no basic auth credentials` 에러 없음
+- 실패 징후:
+  - `file` 명령 결과가 `XML` 이면 바이너리 다운로드 실패 — URL/버전 확인
+  - kubelet 로그에 `unknown field "imageCredentialProvider..."` → config.yaml 이 아닌 `/etc/default/kubelet` 에 CLI 플래그로 넣어야 함
+- 롤백 / 정리:
+
+```bash
+sudo rm /etc/default/kubelet
+sudo rm /etc/kubernetes/credential-provider.yaml
+sudo rm -rf /usr/local/bin/ecr-credential-provider
+sudo systemctl restart kubelet
+```
+
 ### Step 3-7. ArgoCD 설치
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
@@ -817,25 +873,34 @@ kubectl delete namespace linkerd || true
 - 명령어:
 
 ```bash
-kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+# Helm repo 추가
+helm repo add argo https://argoproj.github.io/argo-helm
+helm repo update
 
-# ArgoCD CRD가 크므로 server-side apply 사용 (client-side는 annotation 262KB 초과 에러)
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml \
-  --server-side --force-conflicts
+# argocd.yaml 을 cloud-repo 에서 가져오거나, /tmp 에 작성
+# 원본: v3-k8s/manifests/helm/values/argocd.yaml
+# Helm 설치
+helm install argocd argo/argo-cd -n argocd --create-namespace -f /tmp/argocd.yaml
 
+# 롤아웃 대기
 kubectl rollout status deployment/argocd-server -n argocd --timeout=10m
 kubectl rollout status deployment/argocd-repo-server -n argocd --timeout=10m
-kubectl rollout status statefulset/argocd-application-controller -n argocd --timeout=10m
+
+# 초기 admin 비밀번호 확인
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
 ```
 
 - 기대 결과:
   - `argocd` namespace 핵심 컴포넌트가 `Running`
+  - Helm values 에 설정한 Ingress, 리소스 제한, cloud-repo 연결이 반영됨
 - 실패 징후:
-  - CRD apply 실패 — `--server-side --force-conflicts` 없이 실행 시 annotation 크기 초과 에러 발생
+  - CRD apply 실패 — ArgoCD CRD가 크므로 client-side apply 시 annotation 262KB 초과 에러 가능. 이 경우 `kubectl apply --server-side --force-conflicts` 사용
+  - Helm values YAML 파싱 오류
   - 이전 ArgoCD 잔여 리소스가 있는 경우 selector immutable 에러 — `kubectl delete deploy,sts,svc,networkpolicy --all -n argocd` 후 재적용
 - 롤백 / 정리:
 
 ```bash
+helm uninstall argocd -n argocd
 kubectl delete namespace argocd
 ```
 

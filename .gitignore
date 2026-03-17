@@ -22,3 +22,4 @@ v2-docker/monitoring/loki/data/
 /loadtest/seed/generated_dummy_seed.sql
 /loadtest/seed/generated_dummy_cleanup.sql
 /loadtest/seed/search_perf_seed.sql
+kustomize

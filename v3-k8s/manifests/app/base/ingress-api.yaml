@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tasteam-api-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.tasteam.kr
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: spring-boot-svc
+                port:
+                  number: 80
+          - path: /ai
+            pathType: Prefix
+            backend:
+              service:
+                name: fastapi-svc
+                port:
+                  number: 80

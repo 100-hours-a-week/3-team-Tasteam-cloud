@@ -1,0 +1,43 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tasteam-dev
+  namespace: argocd
+  labels:
+    env: dev
+    project: tasteam
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: tasteam
+
+  source:
+    repoURL: https://github.com/100-hours-a-week/3-team-Tasteam-cloud.git
+    targetRevision: main
+    path: v3-k8s/manifests/app/overlays/dev
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app-dev
+
+  # dev — 자동 동기화 (Git push → 즉시 반영)
+  syncPolicy:
+    automated:
+      prune: true       # Git에서 삭제된 리소스를 클러스터에서도 삭제
+      selfHeal: true     # 수동 변경(kubectl edit 등)을 Git 상태로 자동 되돌림
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m0s
+
+  ignoreDifferences:
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jsonPointers:
+        - /status

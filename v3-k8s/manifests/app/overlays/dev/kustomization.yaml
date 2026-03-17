@@ -1,0 +1,122 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: app-dev
+
+resources:
+  - ../../base
+
+patches:
+  # dev — 최소 리소스
+  - target:
+      kind: Deployment
+      name: spring-boot
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 200m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 256Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 500m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 512Mi
+
+  # BE 파이프라인 검증 후 활성화
+  # - target:
+  #     kind: Deployment
+  #     name: fastapi
+  #   patch: |-
+  #     - op: replace
+  #       path: /spec/replicas
+  #       value: 1
+  #     - op: replace
+  #       path: /spec/template/spec/containers/0/resources/requests/cpu
+  #       value: 200m
+  #     - op: replace
+  #       path: /spec/template/spec/containers/0/resources/requests/memory
+  #       value: 256Mi
+  #     - op: replace
+  #       path: /spec/template/spec/containers/0/resources/limits/cpu
+  #       value: 500m
+  #     - op: replace
+  #       path: /spec/template/spec/containers/0/resources/limits/memory
+  #       value: 512Mi
+
+  # HPA — dev는 비활성화 (고정 1 replica)
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: spring-boot-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 1
+
+  # BE 파이프라인 검증 후 활성화
+  # - target:
+  #     kind: HorizontalPodAutoscaler
+  #     name: fastapi-hpa
+  #   patch: |-
+  #     - op: replace
+  #       path: /spec/minReplicas
+  #       value: 1
+  #     - op: replace
+  #       path: /spec/maxReplicas
+  #       value: 1
+
+  # Ingress host — dev 도메인
+  - target:
+      kind: Ingress
+      name: tasteam-api-ingress
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: dev-api.tasteam.kr
+
+  - target:
+      kind: Ingress
+      name: tasteam-ws-ingress
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: dev-api.tasteam.kr
+
+  # PDB 제거 — dev에서는 불필요
+  - target:
+      kind: PodDisruptionBudget
+      name: spring-boot-pdb
+    patch: |-
+      $patch: delete
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: spring-boot-pdb
+
+images:
+  - name: SPRING_BOOT_IMAGE
+    newName: 203802643061.dkr.ecr.ap-northeast-2.amazonaws.com/tasteam-be
+    newTag: 6dcbd92
+  # BE 파이프라인 검증 후 활성화
+  # - name: FASTAPI_IMAGE
+  #   newName: 203802643061.dkr.ecr.ap-northeast-2.amazonaws.com/tasteam-ai
+  #   newTag: latest
+
+configMapGenerator:
+  - name: spring-config
+    behavior: replace
+    literals:
+      - profile=dev
+  # BE 파이프라인 검증 후 활성화
+  # - name: fastapi-config
+  #   behavior: replace
+  #   literals:
+  #     - env=dev
