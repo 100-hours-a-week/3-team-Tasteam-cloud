@@ -933,20 +933,21 @@ kubectl get deployment -n external-secrets
   - `helm uninstall external-secrets -n external-secrets`
   - `kubectl delete namespace external-secrets`
 
-### Step 3-8-1. ClusterSecretStore 생성 (수동 관리)
+### Step 3-8-1. ClusterSecretStore 생성
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
 - 목적: ESO 가 AWS Parameter Store 에 접근할 수 있도록 ClusterSecretStore 를 생성한다.
 - 전제: 노드 IAM Role 에 `ssm:GetParameter*` 권한이 이미 포함되어 있다 (Step 1-2 IAM 정책 참고).
-- 비고: ClusterSecretStore 는 cluster-scoped 인프라 리소스이므로 ArgoCD GitOps 대상이 아닌 **수동 관리** 로 운영한다. 한번 생성하면 변경할 일이 거의 없다.
 - 명령어:
 
 ```bash
+export KUBECONFIG=$HOME/.kube/config
+
 cat <<'EOF' | kubectl apply -f -
 apiVersion: external-secrets.io/v1
 kind: ClusterSecretStore
 metadata:
-  name: aws-parameter-store
+  name: aws-ssm
 spec:
   provider:
     aws:
@@ -954,16 +955,16 @@ spec:
       region: ap-northeast-2
 EOF
 
-kubectl get clustersecretstore aws-parameter-store
+kubectl get clustersecretstore aws-ssm
 ```
 
 - 기대 결과:
-  - ClusterSecretStore `aws-parameter-store` 가 `Valid` / `Ready: True` 상태
+  - ClusterSecretStore `aws-ssm` 이 `Valid` 상태
 - 실패 징후:
   - IAM 권한 부족으로 `SecretStore is not ready`
   - ESO controller 가 아직 Running 이 아닌 경우
 - 롤백 / 정리:
-  - `kubectl delete clustersecretstore aws-parameter-store` 후 IAM 권한 / ESO 상태를 점검한다.
+  - `kubectl delete clustersecretstore aws-ssm` 후 IAM 권한 / ESO 상태를 점검한다.
 
 ### Step 3-8-2. Track A addon 상태 / 버전 캡처
 
@@ -1047,11 +1048,10 @@ kubectl delete namespace app-prod
 - ESO(Step 3-8) + ExternalSecret(Step 4-3) 이 Parameter Store 값을 K8s Secret 으로 자동 동기화한다.
 - 수동으로 env 파일을 추출할 필요 없음.
 
-### Step 4-3. ExternalSecret 생성 (ArgoCD 관리)
+### Step 4-3. ExternalSecret 생성
 
-- 실행 위치: cloud-repo `v3-k8s/manifests/app/overlays/prod/external-secret.yaml` 에 정의
+- 실행 위치: `prod-ec2-k8s-cp-2a`
 - 목적: Parameter Store 의 민감값을 K8s Secret 으로 자동 동기화한다.
-- 비고: ExternalSecret 은 namespace-scoped 이므로 ArgoCD GitOps 로 관리한다. `overlays/prod/kustomization.yaml` 의 resources 에 포함되어 있어 ArgoCD Sync 시 자동 적용된다.
 - 주의: Parameter Store 키가 `/prod/tasteam/backend/DB_URL` 처럼 개별 경로이므로 `extract` 가 아닌 `find` + `rewrite` 를 사용해야 한다.
   - `find` 는 하위 경로를 탐색하여 모든 키를 수집
   - `rewrite` 는 경로 prefix 를 제거하여 Secret 키 이름을 정리 (예: `/prod/tasteam/backend/DB_URL` → `DB_URL`)
@@ -1067,7 +1067,7 @@ metadata:
 spec:
   refreshInterval: 1h
   secretStoreRef:
-    name: aws-parameter-store
+    name: aws-ssm
     kind: ClusterSecretStore
   target:
     name: spring-boot-runtime
@@ -1093,7 +1093,7 @@ EOF
 # spec:
 #   refreshInterval: 1h
 #   secretStoreRef:
-#     name: aws-parameter-store
+#     name: aws-ssm
 #     kind: ClusterSecretStore
 #   target:
 #     name: fastapi-runtime
