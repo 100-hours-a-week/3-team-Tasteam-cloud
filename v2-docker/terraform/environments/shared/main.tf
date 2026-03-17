@@ -822,6 +822,27 @@ resource "aws_ecr_repository" "backend" {
 }
 
 # ──────────────────────────────────────────────
+# ECR — AI Repository
+# ──────────────────────────────────────────────
+
+resource "aws_ecr_repository" "ai" {
+  name                 = var.ecr_repository_ai_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = {
+    Name = "${var.environment}-ecr-ai"
+  }
+}
+
+# ──────────────────────────────────────────────
 # SSM — Monitoring POSTGRES_DSN
 # 모니터링 Alloy가 prod RDS에 접속하기 위한 DSN
 # Terraform이 RDS 주소 포함한 템플릿 생성, 사용자가 실제 자격증명으로 값 수정

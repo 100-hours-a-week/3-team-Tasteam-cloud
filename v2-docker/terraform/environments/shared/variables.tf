@@ -38,3 +38,9 @@ variable "ecr_repository_backend_name" {
   type        = string
   default     = "tasteam-be"
 }
+
+variable "ecr_repository_ai_name" {
+  description = "ECR repository name for AI image"
+  type        = string
+  default     = "tasteam-ai"
+}
