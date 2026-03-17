@@ -16,7 +16,7 @@ variable "github_repositories" {
   default = [
     "100-hours-a-week/3-team-Tasteam-be",
     "100-hours-a-week/3-team-Tasteam-fe",
-    "100-hours-a-week/3-team-tasteam-ai",
+    "100-hours-a-week/3-team-Tasteam-ai",
     "100-hours-a-week/3-team-Tasteam-cloud",
   ]
 }
