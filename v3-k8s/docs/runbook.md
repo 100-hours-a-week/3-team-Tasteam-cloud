@@ -780,6 +780,14 @@ kubectl delete namespace ingress-nginx
 - 명령어:
 
 ```bash
+# SSM 세션에서는 HOME이 설정되지 않을 수 있으므로 명시적으로 지정
+export HOME=/root
+export KUBECONFIG=$HOME/.kube/config
+
+# Gateway API CRDs 설치 (Linkerd 전제 조건)
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+
+# Linkerd CLI 설치
 curl --proto '=https' --tlsv1.2 -sSfL https://run.linkerd.io/install-edge | sh
 export PATH="$HOME/.linkerd2/bin:$PATH"
 
@@ -792,6 +800,8 @@ linkerd check
 - 기대 결과:
   - `linkerd check` 통과
 - 실패 징후:
+  - `HOME` 미설정 시 Linkerd CLI 설치 경로 오류 — `export HOME=/root` 확인
+  - Gateway API CRDs 미설치 시 `linkerd install` 실패
   - CNI / iptables / admission webhook 관련 pre-check 실패
 - 롤백 / 정리:
 
@@ -808,7 +818,10 @@ kubectl delete namespace linkerd || true
 
 ```bash
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# ArgoCD CRD가 크므로 server-side apply 사용 (client-side는 annotation 262KB 초과 에러)
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml \
+  --server-side --force-conflicts
 
 kubectl rollout status deployment/argocd-server -n argocd --timeout=10m
 kubectl rollout status deployment/argocd-repo-server -n argocd --timeout=10m
@@ -818,7 +831,8 @@ kubectl rollout status statefulset/argocd-application-controller -n argocd --tim
 - 기대 결과:
   - `argocd` namespace 핵심 컴포넌트가 `Running`
 - 실패 징후:
-  - CRD apply 실패
+  - CRD apply 실패 — `--server-side --force-conflicts` 없이 실행 시 annotation 크기 초과 에러 발생
+  - 이전 ArgoCD 잔여 리소스가 있는 경우 selector immutable 에러 — `kubectl delete deploy,sts,svc,networkpolicy --all -n argocd` 후 재적용
 - 롤백 / 정리:
 
 ```bash
@@ -865,7 +879,7 @@ kubectl get deployment -n external-secrets
 export KUBECONFIG=$HOME/.kube/config
 
 cat <<'EOF' | kubectl apply -f -
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ClusterSecretStore
 metadata:
   name: aws-ssm
@@ -985,7 +999,7 @@ kubectl create configmap app-prod-config \
 
 # ExternalSecret: spring-boot-runtime (SSM /prod/tasteam/backend/*)
 kubectl apply -f - <<'EOF'
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: spring-boot-runtime
@@ -1011,7 +1025,7 @@ EOF
 
 # ExternalSecret: fastapi-runtime (SSM /prod/tasteam/fastapi/*)
 kubectl apply -f - <<'EOF'
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: fastapi-runtime

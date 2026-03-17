@@ -908,6 +908,126 @@ spec:
 - ResourceQuota로 dev/stg가 prod의 리소스를 침범하지 않도록 제한
 - 클러스터 분리나 AWS 계정 분리는 현재 규모 대비 비용/운영 부담이 과도하여 채택하지 않음
 
+#### 7.2.1 Namespace 설계 근거: 환경 기반 vs 서비스 기반
+
+**환경 기반 (채택)**: `app-prod`, `app-stg`, `app-dev` — 각 namespace에 Spring Boot + FastAPI를 함께 배포
+
+**서비스 기반 (미채택)**: `app-be`, `app-ai` — 서비스별 namespace 분리
+
+환경 기반을 선택한 이유:
+
+| 기준 | 환경 기반 | 서비스 기반 |
+|------|-----------|------------|
+| 격리 단위 | prod ↔ dev/stg 간섭 차단 (핵심 요구) | 서비스 간 격리 (현재 2개뿐, 과도) |
+| 서비스 간 통신 | 같은 namespace 내 `svc.cluster.local` 직접 호출 | cross-namespace 호출 + NetworkPolicy 허용 규칙 필요 |
+| 리소스 제어 | 환경별 ResourceQuota로 prod 보호 | 서비스별 quota (환경 격리 별도 구현 필요) |
+| 운영 복잡도 | namespace 3개 | namespace 최소 6개 (서비스 × 환경) |
+| Linkerd mTLS | namespace 단위 injection으로 환경별 mesh 제어 | 동일하나 cross-namespace 정책 추가 필요 |
+
+서비스가 2개(Spring Boot, FastAPI)인 현재 규모에서 서비스 기반 분리는 namespace 수만 증가시키고 cross-namespace 통신 설정 부담이 커집니다.
+
+#### 7.2.2 Namespace 내 서비스 구분: Label 전략
+
+동일 namespace 내에서 서비스를 구분하기 위해 label을 사용합니다.
+
+```yaml
+# Spring Boot Pod
+metadata:
+  labels:
+    app: spring-boot
+    tier: backend
+
+# FastAPI Pod
+metadata:
+  labels:
+    app: fastapi
+    tier: ai
+```
+
+- `app` label: Service selector, HPA targetRef, 모니터링 대시보드 필터링에 사용
+- `tier` label: NetworkPolicy에서 서비스 그룹 단위 제어 시 사용
+
+#### 7.2.3 ResourceQuota / LimitRange
+
+prod 환경의 리소스를 보호하고, dev/stg에서 과도한 리소스 사용을 방지합니다.
+
+<details>
+<summary>ResourceQuota YAML</summary>
+
+```yaml
+# app-prod: 운영 환경 — 전체 리소스의 대부분을 할당
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: prod-quota
+  namespace: app-prod
+spec:
+  hard:
+    requests.cpu: "3"
+    requests.memory: 6Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    pods: "20"
+---
+# app-dev: 개발 환경 — 최소 리소스
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: dev-quota
+  namespace: app-dev
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 2Gi
+    limits.cpu: "2"
+    limits.memory: 4Gi
+    pods: "10"
+---
+# app-stg: 스테이징 — dev와 동일 수준
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: stg-quota
+  namespace: app-stg
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 2Gi
+    limits.cpu: "2"
+    limits.memory: 4Gi
+    pods: "10"
+```
+
+</details>
+
+<details>
+<summary>LimitRange YAML</summary>
+
+```yaml
+# 모든 app-* namespace에 동일하게 적용
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+spec:
+  limits:
+    - type: Container
+      default:          # limits (명시하지 않은 컨테이너에 자동 적용)
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:   # requests
+        cpu: 100m
+        memory: 128Mi
+      max:
+        cpu: "2"
+        memory: 4Gi
+      min:
+        cpu: 50m
+        memory: 64Mi
+```
+
+</details>
+
 ### 7.3 디렉토리 구조
 
 ```
