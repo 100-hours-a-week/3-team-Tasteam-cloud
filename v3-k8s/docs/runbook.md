@@ -1171,15 +1171,20 @@ kubectl get hpa -n app-prod
 - 명령어:
 
 ```bash
-cd "$HOME/tasteam-k8s/app-prod"
-
-# 외부 의존성 reachability 확인
+# 외부 의존성 reachability 확인 — ESO 가 동기화한 Secret 에서 값을 추출
 DB_HOST=$(
-  grep '^DB_URL=' backend-runtime.env \
-    | sed -E 's#^DB_URL=jdbc:postgresql://([^:/?]+).*#\1#'
+  kubectl get secret spring-boot-runtime -n app-prod \
+    -o jsonpath='{.data.DB_URL}' | base64 -d \
+    | sed -E 's#^jdbc:postgresql://([^:/?]+).*#\1#'
 )
-REDIS_HOST=$(grep '^REDIS_HOST=' backend-runtime.env | cut -d= -f2-)
-REDIS_PORT=$(grep '^REDIS_PORT=' backend-runtime.env | cut -d= -f2-)
+REDIS_HOST=$(
+  kubectl get secret spring-boot-runtime -n app-prod \
+    -o jsonpath='{.data.REDIS_HOST}' | base64 -d
+)
+REDIS_PORT=$(
+  kubectl get secret spring-boot-runtime -n app-prod \
+    -o jsonpath='{.data.REDIS_PORT}' | base64 -d
+)
 
 kubectl run netcheck -n app-prod --rm -it --restart=Never \
   --image=nicolaka/netshoot \
@@ -1263,10 +1268,16 @@ sudo /tmp/bootstrap-k8s-node.sh prod-ec2-k8s-worker-2a-1
 sudo /tmp/bootstrap-k8s-node.sh prod-ec2-k8s-worker-2a-2
 ```
 
+- 이후 **각 신규 노드에서 Step 3-6-1 (ECR Credential Provider 설정)** 을 동일하게 수행한다.
+  - 바이너리 설치, `credential-provider.yaml` 생성, `/etc/default/kubelet` 플래그 추가, kubelet 재시작
+  - 이 단계를 빠뜨리면 ECR 이미지 pull 시 `no basic auth credentials` 에러 발생
+
 - 기대 결과:
   - 신규 4대 모두 kubeadm join 준비 완료
+  - ECR credential provider 가 kubelet 에 설정됨
 - 실패 징후:
   - containerd/kubelet inactive
+  - `ps aux | grep kubelet | grep credential` 에 credential-provider 플래그 미확인
 - 롤백 / 정리:
   - Step 2-2 rollback 과 동일
 
@@ -1314,6 +1325,10 @@ sudo kubeadm join <K8S_API_NLB_DNS>:6443 \
 - 이후 확인:
 
 ```bash
+# CSR 승인 (serverTLSBootstrap: true 사용 시 필수)
+kubectl get csr
+kubectl get csr -o name | xargs kubectl certificate approve
+
 kubectl get nodes -o wide
 kubectl get pods -A -o wide
 ```
@@ -1324,6 +1339,7 @@ kubectl get pods -A -o wide
 - 실패 징후:
   - control-plane join 시 cert key 오류
   - etcd member sync 실패
+  - 노드가 `NotReady` 지속 → CSR 승인 누락 확인 (`kubectl get csr`)
 - 롤백 / 정리:
 
 ```bash
