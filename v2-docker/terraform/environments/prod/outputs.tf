@@ -75,14 +75,24 @@ output "cloud_map_service_dns" {
   value       = module.cloud_map.dns_name
 }
 
-output "k8s_backup_bucket_name" {
-  description = "Prod kubeadm backup S3 bucket name"
-  value       = aws_s3_bucket.k8s_backup.bucket
-}
-
 output "uploads_bucket_name" {
   description = "Prod uploads S3 bucket name"
   value       = aws_s3_bucket.uploads.bucket
+}
+
+output "frontend_static_bucket_name" {
+  description = "Prod frontend static S3 bucket name"
+  value       = aws_s3_bucket.frontend_static.bucket
+}
+
+output "frontend_cloudfront_distribution_id" {
+  description = "CloudFront distribution ID for frontend static delivery"
+  value       = aws_cloudfront_distribution.frontend.id
+}
+
+output "frontend_cloudfront_domain_name" {
+  description = "CloudFront domain name for frontend static delivery"
+  value       = aws_cloudfront_distribution.frontend.domain_name
 }
 
 # ──────────────────────────────────────────────
