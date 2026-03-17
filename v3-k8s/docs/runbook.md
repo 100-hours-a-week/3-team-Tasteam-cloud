@@ -913,7 +913,7 @@ kubectl get deployment -n external-secrets
 export KUBECONFIG=$HOME/.kube/config
 
 cat <<'EOF' | kubectl apply -f -
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ClusterSecretStore
 metadata:
   name: aws-parameter-store
@@ -1012,68 +1012,23 @@ kubectl get namespace app-prod --show-labels
 kubectl delete namespace app-prod
 ```
 
-### Step 4-2. SSM 값을 runtime env 파일로 추출
+### Step 4-2. (생략 — ESO 가 대체)
 
-- 실행 위치: `로컬 작업 PC` 또는 `prod-ec2-k8s-cp-2a`
-- 목적: 현재 prod 런타임 값을 그대로 재사용한다.
-- 명령어:
+- ESO(Step 3-8) + ExternalSecret(Step 4-3) 이 Parameter Store 값을 K8s Secret 으로 자동 동기화한다.
+- 수동으로 env 파일을 추출할 필요 없음.
 
-```bash
-mkdir -p "$HOME/tasteam-k8s/app-prod"
-cd "$HOME/tasteam-k8s/app-prod"
-
-aws ssm get-parameters-by-path \
-  --region "${AWS_REGION}" \
-  --path /prod/tasteam/backend \
-  --recursive \
-  --with-decryption \
-  --query "Parameters[*].[Name,Value]" \
-  --output text \
-  | awk -F'\t' '{print $1"="$2}' \
-  | sed 's#.*/##' > backend-runtime.env
-
-aws ssm get-parameters-by-path \
-  --region "${AWS_REGION}" \
-  --path /prod/tasteam/fastapi \
-  --recursive \
-  --with-decryption \
-  --query "Parameters[*].[Name,Value]" \
-  --output text \
-  | awk -F'\t' '{print $1"="$2}' \
-  | sed 's#.*/##' > fastapi-runtime.env
-
-cat <<'EOF' > app-prod-config.env
-SPRING_PROFILES_ACTIVE=prod
-FASTAPI_URL=http://fastapi-svc.app-prod.svc.cluster.local
-TZ=Asia/Seoul
-EOF
-```
-
-- 기대 결과:
-  - `backend-runtime.env`, `fastapi-runtime.env`, `app-prod-config.env` 생성
-- 실패 징후:
-  - SSM path 값 일부 누락
-  - `.env` 안 줄바꿈 깨짐
-- 롤백 / 정리:
-  - 기존 env 파일을 삭제하고 다시 추출한다.
-
-### Step 4-3. ExternalSecret / ConfigMap 생성
+### Step 4-3. ExternalSecret 생성
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
-- 목적: 민감값은 ExternalSecret (Parameter Store 동기화), 비민감 운영값은 ConfigMap 으로 생성한다.
+- 목적: Parameter Store 의 민감값을 K8s Secret 으로 자동 동기화한다.
+- 주의: Parameter Store 키가 `/prod/tasteam/backend/DB_URL` 처럼 개별 경로이므로 `extract` 가 아닌 `find` + `rewrite` 를 사용해야 한다.
+  - `find` 는 하위 경로를 탐색하여 모든 키를 수집
+  - `rewrite` 는 경로 prefix 를 제거하여 Secret 키 이름을 정리 (예: `/prod/tasteam/backend/DB_URL` → `DB_URL`)
 - 명령어:
 
 ```bash
-cd "$HOME/tasteam-k8s/app-prod"
-export KUBECONFIG=$HOME/.kube/config
-
-kubectl create configmap app-prod-config \
-  -n app-prod \
-  --from-env-file=app-prod-config.env \
-  --dry-run=client -o yaml > 10-app-prod-configmap.yaml
-
-cat <<'EOF' > 20-spring-boot-runtime-es.yaml
-apiVersion: external-secrets.io/v1beta1
+cat <<'EOF' | kubectl apply -f -
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: spring-boot-runtime
@@ -1087,331 +1042,94 @@ spec:
     name: spring-boot-runtime
     creationPolicy: Owner
   dataFrom:
-    - extract:
-        key: /prod/tasteam/backend
+    - find:
+        path: /prod/tasteam/backend
+        name:
+          regexp: ".*"
+      rewrite:
+        - regexp:
+            source: "/prod/tasteam/backend/(.*)"
+            target: "$1"
 EOF
 
-cat <<'EOF' > 21-fastapi-runtime-es.yaml
-apiVersion: external-secrets.io/v1beta1
-kind: ExternalSecret
-metadata:
-  name: fastapi-runtime
-  namespace: app-prod
-spec:
-  refreshInterval: 1h
-  secretStoreRef:
-    name: aws-parameter-store
-    kind: ClusterSecretStore
-  target:
-    name: fastapi-runtime
-    creationPolicy: Owner
-  dataFrom:
-    - extract:
-        key: /prod/tasteam/fastapi
-EOF
+# BE 파이프라인 검증 후 활성화
+# cat <<'EOF' | kubectl apply -f -
+# apiVersion: external-secrets.io/v1
+# kind: ExternalSecret
+# metadata:
+#   name: fastapi-runtime
+#   namespace: app-prod
+# spec:
+#   refreshInterval: 1h
+#   secretStoreRef:
+#     name: aws-parameter-store
+#     kind: ClusterSecretStore
+#   target:
+#     name: fastapi-runtime
+#     creationPolicy: Owner
+#   dataFrom:
+#     - find:
+#         path: /prod/tasteam/fastapi
+#         name:
+#           regexp: ".*"
+#       rewrite:
+#         - regexp:
+#             source: "/prod/tasteam/fastapi/(.*)"
+#             target: "$1"
+# EOF
+
+kubectl get externalsecret -n app-prod
+kubectl get secret spring-boot-runtime -n app-prod
 ```
 
 - 기대 결과:
-  - ConfigMap 1개, ExternalSecret 2개 YAML 생성
+  - ExternalSecret `SecretSynced`, Secret 에 `DB_URL`, `JWT_SECRET` 등 키 이름으로 저장
 - 실패 징후:
-  - YAML 문법 오류
+  - `SecretSyncedError` + `invalid secret keys` → rewrite source 패턴과 실제 경로 불일치
+  - `Secret does not exist` → Parameter Store 경로 확인
 - 롤백 / 정리:
-  - 생성된 YAML 파일을 삭제하고 다시 만든다.
+  - `kubectl delete externalsecret spring-boot-runtime -n app-prod`
 
-### Step 4-4. `app-prod` 워크로드 YAML 작성
+### Step 4-4. ArgoCD GitOps 로 `app-prod` 배포
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`
-- 목적: Spring/FastAPI 배포와 서비스 노출 리소스를 만든다.
+- 목적: ArgoCD Application 이 cloud-repo 의 Kustomize 매니페스트를 Sync 하여 워크로드를 배포한다.
+- 전제:
+  - cloud-repo `v3-k8s/manifests/app/base/` 에 Deployment, Service, HPA, PDB, Ingress, NetworkPolicy 정의
+  - cloud-repo `v3-k8s/manifests/app/overlays/prod/` 에서 환경별 오버라이드 (replicas, 이미지 태그, 도메인 등)
+  - ArgoCD Application `tasteam-prod` 가 `overlays/prod` 를 감시하도록 등록 (Step 3-7 이후)
+  - CD 워크플로우 (`backend-cd-v3.yml`) 가 main push 시 overlays/prod 의 이미지 태그를 자동 업데이트
+- 배포 흐름:
+  1. BE repo main push → GitHub Actions → Docker 빌드 → ECR push
+  2. cloud-repo `overlays/prod/kustomization.yaml` 이미지 태그 업데이트 (bot commit)
+  3. ArgoCD 가 변경 감지 → Sync (수동 Sync 설정이면 아래 명령 실행)
 - 명령어:
 
 ```bash
-cd "$HOME/tasteam-k8s/app-prod"
+# ArgoCD Application 상태 확인
+kubectl get app tasteam-prod -n argocd
 
-export SPRING_IMAGE_URI=<backend image URI:tag>
-export FASTAPI_IMAGE_URI=<fastapi image URI:tag>
-: "${SPRING_IMAGE_URI:?set SPRING_IMAGE_URI}"
-: "${FASTAPI_IMAGE_URI:?set FASTAPI_IMAGE_URI}"
+# OutOfSync 이면 수동 Sync 실행
+kubectl patch app tasteam-prod -n argocd --type merge \
+  -p '{"operation":{"sync":{"revision":"HEAD","syncStrategy":{"apply":{"force":false}}}}}'
 
-cat <<'EOF' > 30-app-prod-workloads.yaml.tpl
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: spring-boot
-  namespace: app-prod
-spec:
-  replicas: 2
-  progressDeadlineSeconds: 120
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
-  selector:
-    matchLabels:
-      app: spring-boot
-  template:
-    metadata:
-      labels:
-        app: spring-boot
-    spec:
-      terminationGracePeriodSeconds: 60
-      containers:
-        - name: spring-boot
-          image: ${SPRING_IMAGE_URI}
-          imagePullPolicy: IfNotPresent
-          ports:
-            - containerPort: 8080
-          envFrom:
-            - configMapRef:
-                name: app-prod-config
-            - secretRef:
-                name: spring-boot-runtime
-          resources:
-            requests:
-              cpu: 500m
-              memory: 1Gi
-            limits:
-              cpu: 1000m
-              memory: 2Gi
-          readinessProbe:
-            httpGet:
-              path: /actuator/health
-              port: 8080
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /actuator/health
-              port: 8080
-            initialDelaySeconds: 60
-            periodSeconds: 15
-            failureThreshold: 3
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: fastapi
-  namespace: app-prod
-spec:
-  replicas: 1
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
-  selector:
-    matchLabels:
-      app: fastapi
-  template:
-    metadata:
-      labels:
-        app: fastapi
-    spec:
-      containers:
-        - name: fastapi
-          image: ${FASTAPI_IMAGE_URI}
-          imagePullPolicy: IfNotPresent
-          ports:
-            - containerPort: 8000
-          envFrom:
-            - secretRef:
-                name: fastapi-runtime
-          resources:
-            requests:
-              cpu: 500m
-              memory: 512Mi
-            limits:
-              cpu: 1000m
-              memory: 1Gi
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 8000
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8000
-            initialDelaySeconds: 15
-            periodSeconds: 15
-            failureThreshold: 3
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: spring-boot-svc
-  namespace: app-prod
-spec:
-  type: ClusterIP
-  selector:
-    app: spring-boot
-  ports:
-    - port: 80
-      targetPort: 8080
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: fastapi-svc
-  namespace: app-prod
-spec:
-  type: ClusterIP
-  selector:
-    app: fastapi
-  ports:
-    - port: 80
-      targetPort: 8000
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: spring-boot-pdb
-  namespace: app-prod
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: spring-boot
----
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: spring-boot-hpa
-  namespace: app-prod
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: spring-boot
-  minReplicas: 2
-  maxReplicas: 4
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70
----
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: fastapi-hpa
-  namespace: app-prod
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: fastapi
-  minReplicas: 1
-  maxReplicas: 2
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: tasteam-api-ingress
-  namespace: app-prod
-spec:
-  ingressClassName: nginx
-  rules:
-    - host: tasteam.kr
-      http:
-        paths:
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: spring-boot-svc
-                port:
-                  number: 80
-          - path: /ai
-            pathType: Prefix
-            backend:
-              service:
-                name: fastapi-svc
-                port:
-                  number: 80
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: tasteam-ws-ingress
-  namespace: app-prod
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-spec:
-  ingressClassName: nginx
-  rules:
-    - host: tasteam.kr
-      http:
-        paths:
-          - path: /ws
-            pathType: Prefix
-            backend:
-              service:
-                name: spring-boot-svc
-                port:
-                  number: 80
-EOF
-
-envsubst < 30-app-prod-workloads.yaml.tpl > 30-app-prod-workloads.yaml
-grep -n 'image:' 30-app-prod-workloads.yaml
-```
-
-- 기대 결과:
-  - `05-kubeadm.md` 와 일치하는 `Deployment/Service/HPA/PDB/Ingress` 리소스 준비
-  - `30-app-prod-workloads.yaml` 에 실제 image URI 가 치환되어 있다.
-- 실패 징후:
-  - 이미지 URI 미확정
-  - FastAPI health path 불일치
-- 롤백 / 정리:
-  - `30-app-prod-workloads.yaml.tpl`, `30-app-prod-workloads.yaml` 만 삭제하면 된다.
-
-### Step 4-5. `app-prod` apply
-
-- 실행 위치: `prod-ec2-k8s-cp-2a`
-- 목적: prod 애플리케이션 리소스를 실제 cluster 에 반영한다.
-- 명령어:
-
-```bash
-cd "$HOME/tasteam-k8s/app-prod"
-
-kubectl apply -f 10-app-prod-configmap.yaml
-kubectl apply -f 20-spring-boot-runtime-es.yaml
-kubectl apply -f 21-fastapi-runtime-es.yaml
-kubectl apply -f 30-app-prod-workloads.yaml
-
+# 롤아웃 확인
 kubectl rollout status deployment/spring-boot -n app-prod --timeout=10m
-kubectl rollout status deployment/fastapi -n app-prod --timeout=10m
 kubectl get pods -n app-prod -o wide
 kubectl get ingress -n app-prod
 kubectl get hpa -n app-prod
 ```
 
 - 기대 결과:
-  - Linkerd sidecar 포함 pod 가 뜬다.
-  - `spring-boot 2`, `fastapi 1` 기동
+  - `spring-boot` Pod 2개 `1/1 Running`
+  - Ingress, Service, HPA, PDB 모두 정상 생성
 - 실패 징후:
-  - `ImagePullBackOff`
-  - `CrashLoopBackOff`
-  - readiness probe 실패 지속
+  - `ImagePullBackOff` → ECR credential provider 확인 (Step 3-6-1)
+  - `CrashLoopBackOff` → ExternalSecret 동기화 상태 확인 (Step 4-3)
+  - ArgoCD `Unknown` → cloud-repo 에 매니페스트 미반영
 - 롤백 / 정리:
-
-```bash
-kubectl delete -f 30-app-prod-workloads.yaml
-kubectl delete -f 21-fastapi-runtime-es.yaml
-kubectl delete -f 20-spring-boot-runtime-es.yaml
-kubectl delete -f 10-app-prod-configmap.yaml
-```
+  - `kubectl rollout undo deployment/spring-boot -n app-prod`
+  - 또는 cloud-repo 이미지 태그를 이전 버전으로 되돌린 뒤 ArgoCD 재 Sync
 
 ### Step 4-6. 내부 / 외부 smoke test
 
