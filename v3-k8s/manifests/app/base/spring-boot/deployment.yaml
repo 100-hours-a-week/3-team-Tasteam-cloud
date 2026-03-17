@@ -52,6 +52,9 @@ spec:
             initialDelaySeconds: 60
             periodSeconds: 15
             failureThreshold: 3
+          envFrom:
+            - secretRef:
+                name: spring-boot-runtime
           env:
             - name: SPRING_PROFILES_ACTIVE
               valueFrom:
