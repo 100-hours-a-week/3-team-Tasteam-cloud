@@ -5,6 +5,7 @@ namespace: app-prod
 
 resources:
   - ../../base
+  - external-secret.yaml
 
 patches:
   # Spring Boot — prod 이미지 태그 (CI가 이 파일의 newTag를 업데이트)
