@@ -161,8 +161,15 @@ module "ssm" {
     "frontend/VITE_FIREBASE_VAPID_KEY"           = { type = "String", description = "Firebase VAPID key" }
 
     # ── FastAPI ──
-    "fastapi/OPENAI_API_KEY" = { type = "SecureString", description = "OpenAI API key" }
-    "fastapi/DB_URL"         = { type = "SecureString", description = "FastAPI DB connection URL" }
+    "fastapi/OPENAI_API_KEY"         = { type = "SecureString", description = "OpenAI API key" }
+    "fastapi/GEMINI_API_KEY"         = { type = "SecureString", description = "Gemini API key" }
+    "fastapi/WANDB_API_KEY"          = { type = "SecureString", description = "Weights & Biases API key" }
+    "fastapi/RUNPOD_API_KEY"         = { type = "SecureString", description = "RunPod API key" }
+    "fastapi/QDRANT_VECTORS_ON_DISK" = { type = "String", description = "Qdrant vectors on disk toggle" }
+    "fastapi/QDRANT_URL"             = { type = "String", description = "Qdrant endpoint or storage path" }
+    "fastapi/HF_HOME"                = { type = "String", description = "Hugging Face cache home directory" }
+    "fastapi/EMBEDDING_CACHE_DIR"    = { type = "String", description = "Embedding cache directory" }
+    "fastapi/DB_URL"                 = { type = "SecureString", description = "FastAPI DB connection URL" }
 
     # ── Monitoring ──
     "monitoring/GRAFANA_ADMIN_PASSWORD" = { type = "SecureString", description = "Grafana admin password" }
