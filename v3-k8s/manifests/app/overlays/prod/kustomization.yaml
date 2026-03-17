@@ -46,7 +46,7 @@ patches:
 images:
   - name: SPRING_BOOT_IMAGE
     newName: 203802643061.dkr.ecr.ap-northeast-2.amazonaws.com/tasteam-be
-    newTag: 512710f
+    newTag: e760f19
   # BE 파이프라인 검증 후 활성화
   # - name: FASTAPI_IMAGE
   #   newName: 203802643061.dkr.ecr.ap-northeast-2.amazonaws.com/tasteam-ai
