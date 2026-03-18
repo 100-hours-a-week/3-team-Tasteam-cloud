@@ -2,6 +2,10 @@
 # Frontend CDN — S3 (private) + CloudFront (OAC)
 # ──────────────────────────────────────────────
 
+locals {
+  frontend_use_custom_certificate = var.frontend_cloudfront_certificate_arn != "" && length(var.frontend_cloudfront_aliases) > 0
+}
+
 resource "aws_s3_bucket" "frontend_static" {
   bucket = var.frontend_static_bucket_name
 
@@ -128,6 +132,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   comment             = "${var.environment} frontend static distribution"
   default_root_object = "index.html"
   price_class         = "PriceClass_200"
+  aliases             = local.frontend_use_custom_certificate ? var.frontend_cloudfront_aliases : []
 
   origin {
     domain_name              = aws_s3_bucket.frontend_static.bucket_regional_domain_name
@@ -178,9 +183,20 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
   }
 
-  # Alias/CERT 연결은 다음 단계에서 추가한다.
-  viewer_certificate {
-    cloudfront_default_certificate = true
+  dynamic "viewer_certificate" {
+    for_each = local.frontend_use_custom_certificate ? [1] : []
+    content {
+      acm_certificate_arn      = var.frontend_cloudfront_certificate_arn
+      ssl_support_method       = "sni-only"
+      minimum_protocol_version = "TLSv1.2_2021"
+    }
+  }
+
+  dynamic "viewer_certificate" {
+    for_each = local.frontend_use_custom_certificate ? [] : [1]
+    content {
+      cloudfront_default_certificate = true
+    }
   }
 
   tags = {
