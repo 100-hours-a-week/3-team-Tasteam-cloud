@@ -438,9 +438,9 @@ module "asg_spring" {
   security_group_ids = [module.security.app_sg_id, aws_security_group.spring_redis_source.id]
   aws_region         = var.aws_region
 
-  min_size     = 1
-  desired_size = 1
-  max_size     = 2
+  min_size     = 0
+  desired_size = 0
+  max_size     = 0
 
   app_port = 8080
 
