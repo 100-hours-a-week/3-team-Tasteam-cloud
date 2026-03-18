@@ -55,13 +55,7 @@ variable "frontend_certificate_san_names" {
 variable "frontend_cloudfront_aliases" {
   description = "Custom domain aliases for frontend CloudFront distribution (e.g., tasteam.kr)"
   type        = list(string)
-  default     = []
-}
-
-variable "frontend_cloudfront_certificate_arn" {
-  description = "Issued ACM certificate ARN in us-east-1 for frontend CloudFront aliases"
-  type        = string
-  default     = ""
+  default     = ["tasteam.kr"]
 }
 
 variable "v1_migration_principal_arns" {

@@ -3,7 +3,7 @@
 # ──────────────────────────────────────────────
 
 locals {
-  frontend_use_custom_certificate = var.frontend_cloudfront_certificate_arn != "" && length(var.frontend_cloudfront_aliases) > 0
+  frontend_use_custom_certificate = length(var.frontend_cloudfront_aliases) > 0 && aws_acm_certificate.frontend_cloudfront.status == "ISSUED"
 }
 
 resource "aws_s3_bucket" "frontend_static" {
@@ -186,7 +186,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   dynamic "viewer_certificate" {
     for_each = local.frontend_use_custom_certificate ? [1] : []
     content {
-      acm_certificate_arn      = var.frontend_cloudfront_certificate_arn
+      acm_certificate_arn      = aws_acm_certificate.frontend_cloudfront.arn
       ssl_support_method       = "sni-only"
       minimum_protocol_version = "TLSv1.2_2021"
     }
