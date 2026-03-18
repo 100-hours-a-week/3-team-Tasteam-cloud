@@ -43,3 +43,17 @@ provider "aws" {
     }
   }
 }
+
+provider "aws" {
+  alias   = "us_east_1"
+  region  = "us-east-1"
+  profile = "tasteam-v2"
+
+  default_tags {
+    tags = {
+      Environment = var.environment
+      Project     = "tasteam"
+      ManagedBy   = "terraform"
+    }
+  }
+}

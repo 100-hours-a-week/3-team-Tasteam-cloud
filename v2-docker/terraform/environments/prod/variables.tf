@@ -40,6 +40,18 @@ variable "frontend_static_bucket_name" {
   default     = "tasteam-prod-frontend-static-kr"
 }
 
+variable "frontend_certificate_domain_name" {
+  description = "Primary domain name for frontend CloudFront ACM certificate (must be issued in us-east-1)"
+  type        = string
+  default     = "tasteam.kr"
+}
+
+variable "frontend_certificate_san_names" {
+  description = "Subject Alternative Names for frontend CloudFront ACM certificate"
+  type        = list(string)
+  default     = []
+}
+
 variable "v1_migration_principal_arns" {
   description = "IAM principal ARNs in v1 account allowed to migrate objects into the uploads bucket"
   type        = list(string)

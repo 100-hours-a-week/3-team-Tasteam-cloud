@@ -95,6 +95,23 @@ output "frontend_cloudfront_domain_name" {
   value       = aws_cloudfront_distribution.frontend.domain_name
 }
 
+output "frontend_cloudfront_acm_certificate_arn" {
+  description = "ACM certificate ARN for frontend CloudFront custom domain (us-east-1)"
+  value       = aws_acm_certificate.frontend_cloudfront.arn
+}
+
+output "frontend_cloudfront_acm_dns_validation_records" {
+  description = "DNS validation CNAME records for the frontend CloudFront ACM certificate"
+  value = [
+    for dvo in aws_acm_certificate.frontend_cloudfront.domain_validation_options : {
+      domain_name  = dvo.domain_name
+      record_name  = dvo.resource_record_name
+      record_type  = dvo.resource_record_type
+      record_value = dvo.resource_record_value
+    }
+  ]
+}
+
 # ──────────────────────────────────────────────
 # Redis EC2
 # ──────────────────────────────────────────────
