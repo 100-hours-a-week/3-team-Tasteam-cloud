@@ -68,6 +68,11 @@ output "uploads_bucket_name" {
   value       = aws_s3_bucket.uploads.bucket
 }
 
+output "frontend_static_bucket_name" {
+  description = "Stg frontend static S3 bucket name"
+  value       = aws_s3_bucket.frontend_static.bucket
+}
+
 output "ec2_redis_instance_id" {
   description = "Stg Redis EC2 instance ID"
   value       = module.ec2_redis.instance_id

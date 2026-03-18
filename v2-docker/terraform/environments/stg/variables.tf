@@ -34,6 +34,12 @@ variable "upload_bucket_name" {
   default     = "tasteam-stg-uploads-kr"
 }
 
+variable "frontend_static_bucket_name" {
+  description = "S3 bucket name for frontend static assets"
+  type        = string
+  default     = "tasteam-stg-frontend-static-kr"
+}
+
 variable "v1_migration_principal_arns" {
   description = "IAM principal ARNs in v1 account allowed to migrate objects into the uploads bucket"
   type        = list(string)

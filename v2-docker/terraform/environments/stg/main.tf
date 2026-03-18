@@ -288,6 +288,46 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
 }
 
 # ──────────────────────────────────────────────
+# S3 — Frontend Static Bucket (private)
+# ──────────────────────────────────────────────
+
+resource "aws_s3_bucket" "frontend_static" {
+  bucket = var.frontend_static_bucket_name
+
+  tags = {
+    Name    = "${var.environment}-frontend-static"
+    Purpose = "frontend-static-hosting"
+  }
+}
+
+resource "aws_s3_bucket_ownership_controls" "frontend_static" {
+  bucket = aws_s3_bucket.frontend_static.id
+
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "frontend_static" {
+  bucket = aws_s3_bucket.frontend_static.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "frontend_static" {
+  bucket = aws_s3_bucket.frontend_static.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# ──────────────────────────────────────────────
 # S3 — Application Analytics Bucket
 # ──────────────────────────────────────────────
 
