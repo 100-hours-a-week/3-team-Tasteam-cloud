@@ -846,6 +846,21 @@ resource "aws_ssm_parameter" "redis_port" {
   }
 }
 
+resource "aws_ssm_parameter" "frontend_env" {
+  name        = "/${var.environment}/tasteam/frontend/env"
+  type        = "String"
+  value       = "PLACEHOLDER"
+  description = "Frontend runtime environment"
+
+  tags = {
+    Name = "${var.environment}-ssm-frontend-env"
+  }
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
 resource "aws_ssm_parameter" "db_url" {
   name        = "/${var.environment}/tasteam/backend/DB_URL"
   type        = "SecureString"
