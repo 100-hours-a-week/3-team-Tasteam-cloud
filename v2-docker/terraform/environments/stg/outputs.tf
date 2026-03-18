@@ -73,6 +73,16 @@ output "frontend_static_bucket_name" {
   value       = aws_s3_bucket.frontend_static.bucket
 }
 
+output "frontend_cloudfront_distribution_id" {
+  description = "CloudFront distribution ID for stg frontend static delivery"
+  value       = aws_cloudfront_distribution.frontend.id
+}
+
+output "frontend_cloudfront_domain_name" {
+  description = "CloudFront domain name for stg frontend static delivery"
+  value       = aws_cloudfront_distribution.frontend.domain_name
+}
+
 output "ec2_redis_instance_id" {
   description = "Stg Redis EC2 instance ID"
   value       = module.ec2_redis.instance_id
