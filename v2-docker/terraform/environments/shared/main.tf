@@ -498,6 +498,20 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
 
 locals {
   github_oidc_provider_arn_resolved = var.github_oidc_provider_arn != "" ? var.github_oidc_provider_arn : aws_iam_openid_connect_provider.github_actions[0].arn
+  frontend_static_bucket_names = [
+    "tasteam-prod-frontend-static-kr",
+    "tasteam-stg-frontend-static-kr",
+  ]
+  frontend_static_bucket_arns = [
+    for bucket_name in local.frontend_static_bucket_names : "arn:aws:s3:::${bucket_name}"
+  ]
+  frontend_static_object_arns = [
+    for bucket_arn in local.frontend_static_bucket_arns : "${bucket_arn}/*"
+  ]
+  frontend_cloudfront_distribution_arns = [
+    "arn:aws:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/E3M12ZGX00PF59",
+    "arn:aws:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/E2FWGWJYI69IXN",
+  ]
 }
 
 resource "aws_iam_role" "github_actions_deploy" {
@@ -561,6 +575,32 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
           "s3:GetBucketLocation"
         ]
         Resource = "arn:aws:s3:::${var.codedeploy_artifact_bucket_name}"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject",
+          "s3:AbortMultipartUpload"
+        ]
+        Resource = local.frontend_static_object_arns
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucketLocation"
+        ]
+        Resource = local.frontend_static_bucket_arns
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudfront:CreateInvalidation",
+          "cloudfront:GetInvalidation"
+        ]
+        Resource = local.frontend_cloudfront_distribution_arns
       },
       {
         Effect = "Allow"
