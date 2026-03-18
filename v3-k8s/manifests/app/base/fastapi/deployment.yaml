@@ -34,22 +34,26 @@ spec:
           resources:
             requests:
               cpu: 500m
-              memory: 512Mi
+              memory: 2Gi
             limits:
               cpu: 1000m
-              memory: 1Gi
+              memory: 3Gi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 15
             periodSeconds: 15
             failureThreshold: 3
           envFrom:
