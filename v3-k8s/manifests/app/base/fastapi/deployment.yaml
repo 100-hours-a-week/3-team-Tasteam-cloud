@@ -37,7 +37,7 @@ spec:
               memory: 1Gi
             limits:
               cpu: 1000m
-              memory: 2Gi
+              memory: 3Gi
           startupProbe:
             httpGet:
               path: /health
