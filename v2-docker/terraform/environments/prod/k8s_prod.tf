@@ -454,6 +454,7 @@ resource "aws_security_group_rule" "k8s_control_plane_ingress_5473_from_self" {
 }
 
 # Calico BGP (port 179) — required even with VXLANCrossSubnet
+
 resource "aws_security_group_rule" "k8s_control_plane_ingress_179_from_self" {
   type                     = "ingress"
   from_port                = 179
@@ -700,4 +701,196 @@ module "ec2_k8s_worker_2c" {
   associate_public_ip_address = false
   iam_instance_profile        = aws_iam_instance_profile.prod_k8s_node.name
   root_volume_size            = 50
+}
+
+# ──────────────────────────────────────────────
+# SSM Parameters — kubeadm join 자동화
+# ──────────────────────────────────────────────
+
+resource "aws_ssm_parameter" "k8s_join_token" {
+  name        = "/${var.environment}/tasteam/k8s/join-token"
+  type        = "SecureString"
+  value       = "placeholder"
+  description = "kubeadm bootstrap token (CP timer 가 갱신)"
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "aws_ssm_parameter" "k8s_ca_cert_hash" {
+  name        = "/${var.environment}/tasteam/k8s/ca-cert-hash"
+  type        = "String"
+  value       = "placeholder"
+  description = "kubeadm CA certificate hash"
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "aws_ssm_parameter" "k8s_api_endpoint" {
+  name        = "/${var.environment}/tasteam/k8s/api-endpoint"
+  type        = "String"
+  value       = aws_lb.k8s_apiserver_internal.dns_name
+  description = "Kubernetes API server NLB DNS"
+}
+
+# ──────────────────────────────────────────────
+# IAM — SSM k8s 읽기/쓰기 + Cluster Autoscaler
+# ──────────────────────────────────────────────
+
+resource "aws_iam_role_policy" "prod_k8s_node_ssm_k8s" {
+  name = "ssm-k8s-read-write"
+  role = aws_iam_role.prod_k8s_node.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:PutParameter"
+      ]
+      Resource = [
+        "arn:aws:ssm:${var.aws_region}:*:parameter/${var.environment}/tasteam/k8s/*"
+      ]
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "prod_k8s_node_autoscaling" {
+  name = "cluster-autoscaler"
+  role = aws_iam_role.prod_k8s_node.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "autoscaling:DescribeAutoScalingGroups",
+        "autoscaling:DescribeAutoScalingInstances",
+        "autoscaling:DescribeLaunchConfigurations",
+        "autoscaling:DescribeScalingActivities",
+        "autoscaling:DescribeTags",
+        "autoscaling:SetDesiredCapacity",
+        "autoscaling:TerminateInstanceInAutoScalingGroup",
+        "ec2:DescribeLaunchTemplateVersions",
+        "ec2:DescribeInstanceTypes",
+        "ec2:DescribeImages",
+        "ec2:GetInstanceTypesFromInstanceRequirements"
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
+# ──────────────────────────────────────────────
+# Launch Template — K8s Worker (ASG 용)
+# ──────────────────────────────────────────────
+
+resource "aws_launch_template" "k8s_worker" {
+  name_prefix   = "${var.environment}-lt-k8s-worker-"
+  image_id      = data.aws_ami.ubuntu_2404.id
+  instance_type = "t3.medium"
+
+  network_interfaces {
+    associate_public_ip_address = false
+    security_groups             = [aws_security_group.k8s_worker.id]
+  }
+
+  iam_instance_profile {
+    name = aws_iam_instance_profile.prod_k8s_node.name
+  }
+
+  block_device_mappings {
+    device_name = "/dev/sda1"
+
+    ebs {
+      volume_size           = 50
+      volume_type           = "gp3"
+      delete_on_termination = true
+    }
+  }
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  user_data = base64encode(templatefile(
+    "${path.module}/templates/k8s_worker_user_data.sh.tpl",
+    {
+      aws_region  = var.aws_region
+      environment = var.environment
+    }
+  ))
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name = "${var.environment}-ec2-k8s-worker-asg"
+    }
+  }
+}
+
+# ──────────────────────────────────────────────
+# ASG — K8s Worker + NLB 자동 등록
+# ──────────────────────────────────────────────
+
+resource "aws_autoscaling_group" "k8s_worker" {
+  name = "${var.environment}-asg-k8s-worker"
+  vpc_zone_identifier = [
+    local.private_subnet_2a,
+    local.private_subnet_2b,
+    local.private_subnet_2c
+  ]
+
+  min_size         = 2
+  desired_capacity = 2
+  max_size         = 4
+
+  launch_template {
+    id      = aws_launch_template.k8s_worker.id
+    version = "$Latest"
+  }
+
+  health_check_type         = "EC2"
+  health_check_grace_period = 300
+
+  tag {
+    key                 = "Name"
+    value               = "${var.environment}-ec2-k8s-worker-asg"
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "k8s.io/cluster-autoscaler/enabled"
+    value               = "true"
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "k8s.io/cluster-autoscaler/prod-k8s"
+    value               = "owned"
+    propagate_at_launch = true
+  }
+
+  tag {
+    key                 = "kubernetes.io/cluster/prod-k8s"
+    value               = "owned"
+    propagate_at_launch = true
+  }
+}
+
+resource "aws_autoscaling_attachment" "k8s_worker_ingress_http" {
+  autoscaling_group_name = aws_autoscaling_group.k8s_worker.name
+  lb_target_group_arn    = aws_lb_target_group.k8s_ingress_http.arn
+}
+
+resource "aws_autoscaling_attachment" "k8s_worker_ingress_https" {
+  autoscaling_group_name = aws_autoscaling_group.k8s_worker.name
+  lb_target_group_arn    = aws_lb_target_group.k8s_ingress_https.arn
 }

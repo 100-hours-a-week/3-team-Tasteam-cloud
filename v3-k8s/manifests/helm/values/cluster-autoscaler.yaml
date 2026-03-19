@@ -1,0 +1,21 @@
+autoDiscovery:
+  clusterName: prod-k8s
+
+awsRegion: ap-northeast-2
+
+extraArgs:
+  # 스케일 다운 설정
+  scale-down-delay-after-add: 10m     # 노드 추가 후 10분간 축소 금지 (파드 스케줄링+이미지 pull 시간 고려)
+  scale-down-delay-after-delete: 1m
+  scale-down-unneeded-time: 5m        # 5분간 불필요하면 축소
+  scale-down-utilization-threshold: "0.5"
+  # 안전장치
+  skip-nodes-with-local-storage: "false"
+  skip-nodes-with-system-pods: "true"
+  max-graceful-termination-sec: "600"  # drain 에 최대 10분
+
+rbac:
+  create: true
+  serviceAccount:
+    create: true
+    name: cluster-autoscaler

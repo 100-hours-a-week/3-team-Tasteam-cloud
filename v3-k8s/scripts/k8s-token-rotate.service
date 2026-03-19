@@ -1,0 +1,6 @@
+[Unit]
+Description=Rotate kubeadm bootstrap token and store in SSM
+
+[Service]
+Type=oneshot
+ExecStart=/opt/k8s/rotate-join-token.sh
