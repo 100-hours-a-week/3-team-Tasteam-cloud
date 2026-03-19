@@ -558,26 +558,6 @@ module "ec2_redis" {
 }
 
 # ──────────────────────────────────────────────
-# EC2 — Redis Clone (Private)
-# - stg Redis와 동일 패턴으로 신규 EC2 추가
-# - 요청 AMI: ami-0198cb7bbcb7d1673
-# ──────────────────────────────────────────────
-
-module "ec2_redis_clone" {
-  source = "../../modules/ec2"
-
-  environment                 = var.environment
-  purpose                     = "redis-clone"
-  instance_type               = "t3.small"
-  ami_id                      = "ami-0198cb7bbcb7d1673"
-  subnet_id                   = module.vpc.private_subnet_ids[0]
-  security_group_ids          = [aws_security_group.redis_private.id]
-  associate_public_ip_address = false
-  manage_key_pair             = true
-  iam_instance_profile        = aws_iam_instance_profile.ec2_common.name
-}
-
-# ──────────────────────────────────────────────
 # Security Group — Kafka (Private)
 # - 9092: Spring ASG 인스턴스만 허용
 # - 9092~9093: Kafka 브로커 간 통신(self)
