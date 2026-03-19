@@ -103,8 +103,6 @@ nodeRegistration:
   kubeletExtraArgs:
     - name: node-ip
       value: "$${NODE_IP}"
-    - name: node-labels
-      value: "node-role.kubernetes.io/worker="
 JOINEOF
 
 kubeadm join --config /tmp/kubeadm-join.yaml
