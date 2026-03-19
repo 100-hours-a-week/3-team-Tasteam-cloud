@@ -123,6 +123,51 @@ output "ec2_redis_clone_private_key_path" {
   value       = module.ec2_redis_clone.private_key_path
 }
 
+output "ec2_kafka_1_instance_id" {
+  description = "Stg Kafka broker-1 EC2 instance ID"
+  value       = module.ec2_kafka_1.instance_id
+}
+
+output "ec2_kafka_1_private_ip" {
+  description = "Stg Kafka broker-1 EC2 private IP"
+  value       = module.ec2_kafka_1.private_ip
+}
+
+output "ec2_kafka_1_key_pair_name" {
+  description = "Stg Kafka broker-1 EC2 key pair name"
+  value       = module.ec2_kafka_1.key_pair_name
+}
+
+output "ec2_kafka_1_private_key_path" {
+  description = "Stg Kafka broker-1 EC2 private key 로컬 파일 경로 (점프호스트 경유 SSH 용도)"
+  value       = module.ec2_kafka_1.private_key_path
+}
+
+output "ec2_kafka_2_instance_id" {
+  description = "Stg Kafka broker-2 EC2 instance ID"
+  value       = module.ec2_kafka_2.instance_id
+}
+
+output "ec2_kafka_2_private_ip" {
+  description = "Stg Kafka broker-2 EC2 private IP"
+  value       = module.ec2_kafka_2.private_ip
+}
+
+output "ec2_kafka_2_key_pair_name" {
+  description = "Stg Kafka broker-2 EC2 key pair name"
+  value       = module.ec2_kafka_2.key_pair_name
+}
+
+output "ec2_kafka_2_private_key_path" {
+  description = "Stg Kafka broker-2 EC2 private key 로컬 파일 경로 (점프호스트 경유 SSH 용도)"
+  value       = module.ec2_kafka_2.private_key_path
+}
+
+output "kafka_bootstrap_servers" {
+  description = "Kafka bootstrap servers for backend clients"
+  value       = "${module.ec2_kafka_1.private_ip}:9092,${module.ec2_kafka_2.private_ip}:9092"
+}
+
 output "rds_address" {
   description = "RDS endpoint hostname"
   value       = module.rds.address

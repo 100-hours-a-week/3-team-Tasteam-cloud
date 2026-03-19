@@ -27,8 +27,8 @@ module "security" {
 }
 
 # ──────────────────────────────────────────────
-# Security Groups — Source Markers (Redis 접근 제어용)
-# 기존 app_sg를 Caddy/ASG가 함께 사용하므로, Redis SG에서는
+# Security Groups — Source Markers (Redis/Kafka 접근 제어용)
+# 기존 app_sg를 Caddy/ASG가 함께 사용하므로, 서비스 SG에서는
 # source 전용 SG를 별도 부착해 더 좁게 제어한다.
 # ──────────────────────────────────────────────
 
@@ -66,6 +66,23 @@ resource "aws_security_group" "spring_redis_source" {
   }
 }
 
+resource "aws_security_group" "spring_kafka_source" {
+  name        = "${var.environment}-sg-spring-kafka-source"
+  description = "Marker SG attached to Spring ASG instances for Kafka 9092 access"
+  vpc_id      = module.vpc.vpc_id
+
+  egress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+  }
+
+  tags = {
+    Name = "${var.environment}-sg-spring-kafka-source"
+  }
+}
+
 # ──────────────────────────────────────────────
 # SSM Parameter Store
 # ──────────────────────────────────────────────
@@ -84,6 +101,10 @@ module "ssm" {
 
     # ── Spring Boot: Redis ──
     # 참고: REDIS_HOST, REDIS_PORT는 Redis EC2 생성 이후 이 파일 하단의
+    # aws_ssm_parameter 리소스에서 동적으로 생성/관리합니다.
+
+    # ── Spring Boot: Kafka ──
+    # 참고: KAFKA_BOOTSTRAP_SERVERS는 Kafka EC2 생성 이후 이 파일 하단의
     # aws_ssm_parameter 리소스에서 동적으로 생성/관리합니다.
 
     # ── Spring Boot: JWT ──
@@ -446,13 +467,17 @@ module "ec2_caddy" {
 module "asg_spring" {
   source = "../../modules/asg"
 
-  environment        = var.environment
-  purpose            = "spring"
-  instance_type      = "t3.small"
-  ami_id             = "ami-05c852fd45180f54f"
-  subnet_ids         = [module.vpc.private_subnet_ids[0]]
-  security_group_ids = [module.security.app_sg_id, aws_security_group.spring_redis_source.id]
-  aws_region         = var.aws_region
+  environment   = var.environment
+  purpose       = "spring"
+  instance_type = "t3.small"
+  ami_id        = "ami-05c852fd45180f54f"
+  subnet_ids    = [module.vpc.private_subnet_ids[0]]
+  security_group_ids = [
+    module.security.app_sg_id,
+    aws_security_group.spring_redis_source.id,
+    aws_security_group.spring_kafka_source.id,
+  ]
+  aws_region = var.aws_region
 
   min_size     = 1
   desired_size = 1
@@ -547,6 +572,97 @@ module "ec2_redis_clone" {
   ami_id                      = "ami-0198cb7bbcb7d1673"
   subnet_id                   = module.vpc.private_subnet_ids[0]
   security_group_ids          = [aws_security_group.redis_private.id]
+  associate_public_ip_address = false
+  manage_key_pair             = true
+  iam_instance_profile        = aws_iam_instance_profile.ec2_common.name
+}
+
+# ──────────────────────────────────────────────
+# Security Group — Kafka (Private)
+# - 9092: Spring ASG 인스턴스만 허용
+# - 9092~9093: Kafka 브로커 간 통신(self)
+# - 22: Caddy 점프호스트만 허용
+# ──────────────────────────────────────────────
+
+resource "aws_security_group" "kafka_private" {
+  description = "Security group for staging Kafka EC2 (private subnet)"
+  name        = "${var.environment}-sg-kafka-private"
+  vpc_id      = module.vpc.vpc_id
+
+  egress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+  }
+
+  ingress {
+    security_groups = [aws_security_group.spring_kafka_source.id]
+    from_port       = 9092
+    to_port         = 9092
+    protocol        = "tcp"
+    description     = "Kafka client traffic from Spring ASG instances only"
+  }
+
+  ingress {
+    security_groups = [module.security.app_sg_id]
+    from_port       = 9092
+    to_port         = 9092
+    protocol        = "tcp"
+    description     = "Temporary Kafka access from shared app_sg during ASG rollout"
+  }
+
+  ingress {
+    self        = true
+    from_port   = 9092
+    to_port     = 9093
+    protocol    = "tcp"
+    description = "Kafka inter-broker/controller communication"
+  }
+
+  ingress {
+    security_groups = [aws_security_group.caddy_jump_source.id]
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    description     = "SSH from Caddy jump host only"
+  }
+
+  tags = {
+    Name = "${var.environment}-sg-kafka-private"
+  }
+}
+
+# ──────────────────────────────────────────────
+# EC2 — Kafka Brokers (Private)
+# - broker-1/2를 서로 다른 private subnet에 배치(AZ 분산)
+# - Public IP/EIP 미사용
+# - SSH는 Caddy 점프호스트 경유
+# ──────────────────────────────────────────────
+
+module "ec2_kafka_1" {
+  source = "../../modules/ec2"
+
+  environment                 = var.environment
+  purpose                     = "kafka-1"
+  instance_type               = "t3.medium"
+  ami_id                      = data.aws_ami.docker_base.id
+  subnet_id                   = module.vpc.private_subnet_ids[0]
+  security_group_ids          = [aws_security_group.kafka_private.id]
+  associate_public_ip_address = false
+  manage_key_pair             = true
+  iam_instance_profile        = aws_iam_instance_profile.ec2_common.name
+}
+
+module "ec2_kafka_2" {
+  source = "../../modules/ec2"
+
+  environment                 = var.environment
+  purpose                     = "kafka-2"
+  instance_type               = "t3.medium"
+  ami_id                      = data.aws_ami.docker_base.id
+  subnet_id                   = module.vpc.private_subnet_ids[1]
+  security_group_ids          = [aws_security_group.kafka_private.id]
   associate_public_ip_address = false
   manage_key_pair             = true
   iam_instance_profile        = aws_iam_instance_profile.ec2_common.name
@@ -792,6 +908,17 @@ resource "aws_ssm_parameter" "redis_port" {
 
   tags = {
     Name = "${var.environment}-ssm-backend-REDIS_PORT"
+  }
+}
+
+resource "aws_ssm_parameter" "kafka_bootstrap_servers" {
+  name        = "/${var.environment}/tasteam/backend/KAFKA_BOOTSTRAP_SERVERS"
+  type        = "String"
+  value       = "${module.ec2_kafka_1.private_ip}:9092,${module.ec2_kafka_2.private_ip}:9092"
+  description = "Kafka bootstrap servers (Kafka EC2 2대에서 자동 생성)"
+
+  tags = {
+    Name = "${var.environment}-ssm-backend-KAFKA_BOOTSTRAP_SERVERS"
   }
 }
 
