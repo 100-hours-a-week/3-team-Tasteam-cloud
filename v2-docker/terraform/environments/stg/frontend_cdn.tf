@@ -89,7 +89,7 @@ resource "aws_cloudfront_response_headers_policy" "frontend_assets_immutable" {
 }
 
 resource "aws_cloudfront_distribution" "frontend" {
-  enabled             = true
+  enabled             = false
   is_ipv6_enabled     = true
   comment             = "${var.environment} frontend static distribution"
   default_root_object = "index.html"
