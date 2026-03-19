@@ -13,6 +13,10 @@ v2-docker/monitoring/grafana/data/
 v2-docker/monitoring/prometheus/data/
 v2-docker/monitoring/loki/data/
 
+# Claude Code
+CLAUDE.md
+.claude/
+
 # MacOS
 .DS_Store
 .idea
