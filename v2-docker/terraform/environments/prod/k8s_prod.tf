@@ -413,6 +413,87 @@ resource "aws_security_group_rule" "k8s_worker_ingress_4789_from_worker" {
   description              = "Overlay network from worker nodes"
 }
 
+resource "aws_security_group_rule" "k8s_worker_ingress_5473_from_control_plane" {
+  type                     = "ingress"
+  from_port                = 5473
+  to_port                  = 5473
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.k8s_worker.id
+  source_security_group_id = aws_security_group.k8s_control_plane.id
+  description              = "Calico Typha from control-plane nodes"
+}
+
+resource "aws_security_group_rule" "k8s_worker_ingress_5473_from_worker" {
+  type                     = "ingress"
+  from_port                = 5473
+  to_port                  = 5473
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.k8s_worker.id
+  source_security_group_id = aws_security_group.k8s_worker.id
+  description              = "Calico Typha from worker nodes"
+}
+
+resource "aws_security_group_rule" "k8s_control_plane_ingress_5473_from_worker" {
+  type                     = "ingress"
+  from_port                = 5473
+  to_port                  = 5473
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.k8s_control_plane.id
+  source_security_group_id = aws_security_group.k8s_worker.id
+  description              = "Calico Typha from worker nodes"
+}
+
+resource "aws_security_group_rule" "k8s_control_plane_ingress_5473_from_self" {
+  type                     = "ingress"
+  from_port                = 5473
+  to_port                  = 5473
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.k8s_control_plane.id
+  source_security_group_id = aws_security_group.k8s_control_plane.id
+  description              = "Calico Typha from control-plane nodes"
+}
+
+# Calico BGP (port 179) — required even with VXLANCrossSubnet
+resource "aws_security_group_rule" "k8s_control_plane_ingress_179_from_self" {
+  type                     = "ingress"
+  from_port                = 179
+  to_port                  = 179
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.k8s_control_plane.id
+  source_security_group_id = aws_security_group.k8s_control_plane.id
+  description              = "Calico BGP from control-plane nodes"
+}
+
+resource "aws_security_group_rule" "k8s_control_plane_ingress_179_from_worker" {
+  type                     = "ingress"
+  from_port                = 179
+  to_port                  = 179
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.k8s_control_plane.id
+  source_security_group_id = aws_security_group.k8s_worker.id
+  description              = "Calico BGP from worker nodes"
+}
+
+resource "aws_security_group_rule" "k8s_worker_ingress_179_from_control_plane" {
+  type                     = "ingress"
+  from_port                = 179
+  to_port                  = 179
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.k8s_worker.id
+  source_security_group_id = aws_security_group.k8s_control_plane.id
+  description              = "Calico BGP from control-plane nodes"
+}
+
+resource "aws_security_group_rule" "k8s_worker_ingress_179_from_worker" {
+  type                     = "ingress"
+  from_port                = 179
+  to_port                  = 179
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.k8s_worker.id
+  source_security_group_id = aws_security_group.k8s_worker.id
+  description              = "Calico BGP from worker nodes"
+}
+
 resource "aws_security_group_rule" "rds_postgres_from_k8s_worker" {
   type                     = "ingress"
   from_port                = 5432
