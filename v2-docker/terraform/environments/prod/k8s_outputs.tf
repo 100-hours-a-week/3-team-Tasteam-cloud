@@ -42,3 +42,23 @@ output "k8s_worker_2c_instance_id" {
   description = "Track A worker 2c instance ID"
   value       = module.ec2_k8s_worker_2c.instance_id
 }
+
+output "k8s_cp_2b_instance_id" {
+  description = "Track B control-plane 2b instance ID"
+  value       = module.ec2_k8s_cp_2b.instance_id
+}
+
+output "k8s_cp_2c_instance_id" {
+  description = "Track B control-plane 2c instance ID"
+  value       = module.ec2_k8s_cp_2c.instance_id
+}
+
+output "k8s_worker_2a_1_instance_id" {
+  description = "Track B worker 2a-1 instance ID"
+  value       = module.ec2_k8s_worker_2a_1.instance_id
+}
+
+output "k8s_worker_2a_2_instance_id" {
+  description = "Track B worker 2a-2 instance ID"
+  value       = module.ec2_k8s_worker_2a_2.instance_id
+}

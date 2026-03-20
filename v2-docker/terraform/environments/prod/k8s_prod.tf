@@ -15,11 +15,15 @@ locals {
 
   k8s_apiserver_targets = {
     cp_2a = module.ec2_k8s_cp_2a.instance_id
+    cp_2b = module.ec2_k8s_cp_2b.instance_id
+    cp_2c = module.ec2_k8s_cp_2c.instance_id
   }
 
   k8s_ingress_targets = {
-    worker_2b = module.ec2_k8s_worker_2b.instance_id
-    worker_2c = module.ec2_k8s_worker_2c.instance_id
+    worker_2b   = module.ec2_k8s_worker_2b.instance_id
+    worker_2c   = module.ec2_k8s_worker_2c.instance_id
+    worker_2a_1 = module.ec2_k8s_worker_2a_1.instance_id
+    worker_2a_2 = module.ec2_k8s_worker_2a_2.instance_id
   }
 }
 
@@ -667,7 +671,7 @@ module "ec2_k8s_cp_2a" {
   environment                 = var.environment
   purpose                     = "k8s-cp-2a"
   instance_type               = "t3.medium"
-  ami_id                      = data.aws_ami.ubuntu_2404.id
+  ami_id                      = "ami-084a56dceed3eb9bb" # Track A 배포 시점 Ubuntu 24.04 고정
   subnet_id                   = local.private_subnet_2a
   security_group_ids          = [aws_security_group.k8s_control_plane.id]
   associate_public_ip_address = false
@@ -681,7 +685,7 @@ module "ec2_k8s_worker_2b" {
   environment                 = var.environment
   purpose                     = "k8s-worker-2b"
   instance_type               = "t3.medium"
-  ami_id                      = data.aws_ami.ubuntu_2404.id
+  ami_id                      = "ami-084a56dceed3eb9bb" # Track A 배포 시점 Ubuntu 24.04 고정
   subnet_id                   = local.private_subnet_2b
   security_group_ids          = [aws_security_group.k8s_worker.id]
   associate_public_ip_address = false
@@ -695,8 +699,68 @@ module "ec2_k8s_worker_2c" {
   environment                 = var.environment
   purpose                     = "k8s-worker-2c"
   instance_type               = "t3.medium"
+  ami_id                      = "ami-084a56dceed3eb9bb" # Track A 배포 시점 Ubuntu 24.04 고정
+  subnet_id                   = local.private_subnet_2c
+  security_group_ids          = [aws_security_group.k8s_worker.id]
+  associate_public_ip_address = false
+  iam_instance_profile        = aws_iam_instance_profile.prod_k8s_node.name
+  root_volume_size            = 50
+}
+
+# ──────────────────────────────────────────────
+# EC2 — K8s Track B Nodes
+# ──────────────────────────────────────────────
+
+module "ec2_k8s_cp_2b" {
+  source = "../../modules/ec2"
+
+  environment                 = var.environment
+  purpose                     = "k8s-cp-2b"
+  instance_type               = "t3.medium"
+  ami_id                      = data.aws_ami.ubuntu_2404.id
+  subnet_id                   = local.private_subnet_2b
+  security_group_ids          = [aws_security_group.k8s_control_plane.id]
+  associate_public_ip_address = false
+  iam_instance_profile        = aws_iam_instance_profile.prod_k8s_node.name
+  root_volume_size            = 50
+}
+
+module "ec2_k8s_cp_2c" {
+  source = "../../modules/ec2"
+
+  environment                 = var.environment
+  purpose                     = "k8s-cp-2c"
+  instance_type               = "t3.medium"
   ami_id                      = data.aws_ami.ubuntu_2404.id
   subnet_id                   = local.private_subnet_2c
+  security_group_ids          = [aws_security_group.k8s_control_plane.id]
+  associate_public_ip_address = false
+  iam_instance_profile        = aws_iam_instance_profile.prod_k8s_node.name
+  root_volume_size            = 50
+}
+
+module "ec2_k8s_worker_2a_1" {
+  source = "../../modules/ec2"
+
+  environment                 = var.environment
+  purpose                     = "k8s-worker-2a-1"
+  instance_type               = "t3.medium"
+  ami_id                      = data.aws_ami.ubuntu_2404.id
+  subnet_id                   = local.private_subnet_2a
+  security_group_ids          = [aws_security_group.k8s_worker.id]
+  associate_public_ip_address = false
+  iam_instance_profile        = aws_iam_instance_profile.prod_k8s_node.name
+  root_volume_size            = 50
+}
+
+module "ec2_k8s_worker_2a_2" {
+  source = "../../modules/ec2"
+
+  environment                 = var.environment
+  purpose                     = "k8s-worker-2a-2"
+  instance_type               = "t3.medium"
+  ami_id                      = data.aws_ami.ubuntu_2404.id
+  subnet_id                   = local.private_subnet_2a
   security_group_ids          = [aws_security_group.k8s_worker.id]
   associate_public_ip_address = false
   iam_instance_profile        = aws_iam_instance_profile.prod_k8s_node.name

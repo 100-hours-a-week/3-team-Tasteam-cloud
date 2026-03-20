@@ -68,6 +68,31 @@ apt-get install -y kubelet kubeadm kubectl
 apt-mark hold kubelet kubeadm kubectl
 systemctl enable kubelet
 
+# ── ECR Credential Provider 설치 ──
+# kubelet이 IAM Role 기반으로 ECR 이미지를 pull 하기 위한 플러그인
+# 호스트 바이너리로 설치 — DaemonSet 불가 (kubelet 플러그인이므로)
+mkdir -p /usr/local/bin/ecr-credential-provider
+curl -Lo /tmp/ecr-credential-provider \
+  https://artifacts.k8s.io/binaries/cloud-provider-aws/v1.31.7/linux/amd64/ecr-credential-provider-linux-amd64
+install -m 755 /tmp/ecr-credential-provider \
+  /usr/local/bin/ecr-credential-provider/ecr-credential-provider
+rm -f /tmp/ecr-credential-provider
+
+mkdir -p /etc/kubernetes
+cat <<CREDEOF > /etc/kubernetes/credential-provider.yaml
+apiVersion: kubelet.config.k8s.io/v1
+kind: CredentialProviderConfig
+providers:
+  - name: ecr-credential-provider
+    matchImages:
+      - "*.dkr.ecr.*.amazonaws.com"
+    defaultCacheDuration: "12h"
+    apiVersion: credentialprovider.kubelet.k8s.io/v1
+CREDEOF
+
+echo 'KUBELET_EXTRA_ARGS=--image-credential-provider-config=/etc/kubernetes/credential-provider.yaml --image-credential-provider-bin-dir=/usr/local/bin/ecr-credential-provider' \
+  > /etc/default/kubelet
+
 # ── SSM 에서 join 정보 읽기 ──
 JOIN_TOKEN=$(/usr/local/bin/aws ssm get-parameter \
   --region "$${AWS_REGION}" \
