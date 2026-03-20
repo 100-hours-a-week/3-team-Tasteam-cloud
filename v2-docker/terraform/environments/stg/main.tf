@@ -187,10 +187,11 @@ module "ssm" {
     "fastapi/WANDB_API_KEY"          = { type = "SecureString", description = "Weights & Biases API key" }
     "fastapi/RUNPOD_API_KEY"         = { type = "SecureString", description = "RunPod API key" }
     "fastapi/QDRANT_VECTORS_ON_DISK" = { type = "String", description = "Qdrant vectors on disk toggle" }
-    "fastapi/QDRANT_URL"             = { type = "String", description = "Qdrant endpoint or storage path" }
-    "fastapi/HF_HOME"                = { type = "String", description = "Hugging Face cache home directory" }
-    "fastapi/EMBEDDING_CACHE_DIR"    = { type = "String", description = "Embedding cache directory" }
-    "fastapi/DB_URL"                 = { type = "SecureString", description = "FastAPI DB connection URL" }
+    # 참고: QDRANT_URL은 Qdrant EC2 생성 이후 이 파일 하단의
+    # aws_ssm_parameter 리소스에서 동적으로 생성/관리합니다.
+    "fastapi/HF_HOME"             = { type = "String", description = "Hugging Face cache home directory" }
+    "fastapi/EMBEDDING_CACHE_DIR" = { type = "String", description = "Embedding cache directory" }
+    "fastapi/DB_URL"              = { type = "SecureString", description = "FastAPI DB connection URL" }
 
     # ── Monitoring ──
     "monitoring/GRAFANA_ADMIN_PASSWORD" = { type = "SecureString", description = "Grafana admin password" }
@@ -558,6 +559,75 @@ module "ec2_redis" {
 }
 
 # ──────────────────────────────────────────────
+# Security Group — Qdrant (Private)
+# - 6333: FastAPI → Qdrant (HTTP REST)
+# - 6334: FastAPI → Qdrant (gRPC)
+# - 22: Caddy 점프호스트만 허용
+# ──────────────────────────────────────────────
+
+resource "aws_security_group" "qdrant_private" {
+  description = "Security group for staging Qdrant EC2 (private subnet)"
+  name        = "${var.environment}-sg-qdrant-private"
+  vpc_id      = module.vpc.vpc_id
+
+  egress {
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+  }
+
+  ingress {
+    security_groups = [module.security.app_sg_id]
+    from_port       = 6333
+    to_port         = 6333
+    protocol        = "tcp"
+    description     = "Qdrant HTTP from app SG (FastAPI)"
+  }
+
+  ingress {
+    security_groups = [module.security.app_sg_id]
+    from_port       = 6334
+    to_port         = 6334
+    protocol        = "tcp"
+    description     = "Qdrant gRPC from app SG (FastAPI)"
+  }
+
+  ingress {
+    security_groups = [aws_security_group.caddy_jump_source.id]
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    description     = "SSH from Caddy jump host only"
+  }
+
+  tags = {
+    Name = "${var.environment}-sg-qdrant-private"
+  }
+}
+
+# ──────────────────────────────────────────────
+# EC2 — Qdrant (Private)
+# - Private subnet 배치
+# - Public IP/EIP 미사용
+# - SSH는 Caddy 점프호스트 경유
+# ──────────────────────────────────────────────
+
+module "ec2_qdrant" {
+  source = "../../modules/ec2"
+
+  environment                 = var.environment
+  purpose                     = "qdrant"
+  instance_type               = "t3.small"
+  ami_id                      = data.aws_ami.docker_base.id
+  subnet_id                   = module.vpc.private_subnet_ids[0]
+  security_group_ids          = [aws_security_group.qdrant_private.id]
+  associate_public_ip_address = false
+  manage_key_pair             = true
+  iam_instance_profile        = aws_iam_instance_profile.ec2_common.name
+}
+
+# ──────────────────────────────────────────────
 # Security Group — Kafka (Private)
 # - 9092, 29092: Spring ASG 인스턴스 허용
 # - 9092~9093, 29092: Kafka 브로커 간 통신(self)
@@ -901,6 +971,11 @@ moved {
   to   = module.ssm.aws_ssm_parameter.this["backend/DB_PASSWORD"]
 }
 
+moved {
+  from = module.ssm.aws_ssm_parameter.this["fastapi/QDRANT_URL"]
+  to   = aws_ssm_parameter.fastapi_qdrant_url
+}
+
 resource "aws_ssm_parameter" "redis_host" {
   name        = "/${var.environment}/tasteam/backend/REDIS_HOST"
   type        = "String"
@@ -920,6 +995,17 @@ resource "aws_ssm_parameter" "redis_port" {
 
   tags = {
     Name = "${var.environment}-ssm-backend-REDIS_PORT"
+  }
+}
+
+resource "aws_ssm_parameter" "fastapi_qdrant_url" {
+  name        = "/${var.environment}/tasteam/fastapi/QDRANT_URL"
+  type        = "String"
+  value       = "http://${module.ec2_qdrant.private_ip}:6333"
+  description = "Qdrant HTTP endpoint for FastAPI (Qdrant EC2에서 자동 생성)"
+
+  tags = {
+    Name = "${var.environment}-ssm-fastapi-QDRANT_URL"
   }
 }
 

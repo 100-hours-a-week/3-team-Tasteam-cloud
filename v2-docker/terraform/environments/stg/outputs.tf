@@ -103,6 +103,36 @@ output "ec2_redis_private_key_path" {
   value       = module.ec2_redis.private_key_path
 }
 
+output "ec2_qdrant_instance_id" {
+  description = "Stg Qdrant EC2 instance ID"
+  value       = module.ec2_qdrant.instance_id
+}
+
+output "ec2_qdrant_private_ip" {
+  description = "Stg Qdrant EC2 private IP"
+  value       = module.ec2_qdrant.private_ip
+}
+
+output "ec2_qdrant_key_pair_name" {
+  description = "Stg Qdrant EC2 key pair name"
+  value       = module.ec2_qdrant.key_pair_name
+}
+
+output "ec2_qdrant_private_key_path" {
+  description = "Stg Qdrant EC2 private key 로컬 파일 경로 (점프호스트 경유 SSH 용도)"
+  value       = module.ec2_qdrant.private_key_path
+}
+
+output "qdrant_http_endpoint" {
+  description = "Qdrant HTTP endpoint for FastAPI"
+  value       = "http://${module.ec2_qdrant.private_ip}:6333"
+}
+
+output "qdrant_grpc_endpoint" {
+  description = "Qdrant gRPC endpoint for FastAPI"
+  value       = "${module.ec2_qdrant.private_ip}:6334"
+}
+
 output "ec2_kafka_1_instance_id" {
   description = "Stg Kafka broker-1 EC2 instance ID"
   value       = module.ec2_kafka_1.instance_id
