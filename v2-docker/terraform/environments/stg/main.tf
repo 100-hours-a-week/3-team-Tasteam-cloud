@@ -624,6 +624,22 @@ resource "aws_security_group" "kafka_private" {
     description     = "SSH from Caddy jump host only"
   }
 
+  ingress {
+    cidr_blocks = ["10.10.0.0/16"]
+    from_port   = 7071
+    to_port     = 7072
+    protocol    = "tcp"
+    description = "Kafka JMX exporter (broker/connect) from monitoring server"
+  }
+
+  ingress {
+    cidr_blocks = ["10.10.0.0/16"]
+    from_port   = 9308
+    to_port     = 9308
+    protocol    = "tcp"
+    description = "kafka-exporter from monitoring server"
+  }
+
   tags = {
     Name = "${var.environment}-sg-kafka-private"
   }
