@@ -561,6 +561,7 @@ module "ec2_redis" {
 # Security Group — Kafka (Private)
 # - 9092: Spring ASG 인스턴스만 허용
 # - 9092~9093: Kafka 브로커 간 통신(self)
+# - 29092: Kafka Connect -> Kafka external listener 통신(self)
 # - 22: Caddy 점프호스트만 허용
 # ──────────────────────────────────────────────
 
@@ -598,6 +599,14 @@ resource "aws_security_group" "kafka_private" {
     to_port     = 9093
     protocol    = "tcp"
     description = "Kafka inter-broker/controller communication"
+  }
+
+  ingress {
+    self        = true
+    from_port   = 29092
+    to_port     = 29092
+    protocol    = "tcp"
+    description = "Kafka Connect traffic to Kafka external listener"
   }
 
   ingress {
