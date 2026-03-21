@@ -297,6 +297,16 @@ resource "aws_security_group_rule" "k8s_control_plane_ingress_6443_from_worker" 
   description              = "Kubernetes API from worker nodes"
 }
 
+resource "aws_security_group_rule" "k8s_control_plane_ingress_6443_from_self" {
+  type                     = "ingress"
+  from_port                = 6443
+  to_port                  = 6443
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.k8s_control_plane.id
+  source_security_group_id = aws_security_group.k8s_control_plane.id
+  description              = "Kubernetes API from control-plane nodes"
+}
+
 resource "aws_security_group_rule" "k8s_control_plane_ingress_2379_2380_from_self" {
   type                     = "ingress"
   from_port                = 2379
