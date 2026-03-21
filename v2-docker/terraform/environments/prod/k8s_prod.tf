@@ -922,8 +922,8 @@ resource "aws_autoscaling_group" "k8s_worker" {
     local.private_subnet_2c
   ]
 
-  min_size         = 2
-  desired_capacity = 2
+  min_size         = 0
+  desired_capacity = 0
   max_size         = 4
 
   launch_template {
