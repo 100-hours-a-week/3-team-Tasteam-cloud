@@ -13,6 +13,7 @@ resource "aws_instance" "this" {
   associate_public_ip_address = var.associate_public_ip_address
   iam_instance_profile        = var.iam_instance_profile
   private_ip                  = var.private_ip
+  source_dest_check           = var.source_dest_check
 
   root_block_device {
     volume_size           = var.root_volume_size

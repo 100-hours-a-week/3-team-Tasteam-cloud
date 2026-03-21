@@ -62,3 +62,4 @@ output "k8s_worker_2a_2_instance_id" {
   description = "Track B worker 2a-2 instance ID"
   value       = module.ec2_k8s_worker_2a_2.instance_id
 }
+

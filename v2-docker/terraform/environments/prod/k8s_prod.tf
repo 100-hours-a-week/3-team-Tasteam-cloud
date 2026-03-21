@@ -509,6 +509,28 @@ resource "aws_security_group_rule" "k8s_worker_ingress_179_from_worker" {
   description              = "Calico BGP from worker nodes"
 }
 
+# --- Pod CIDR 직접 라우팅 허용 (Calico CrossSubnet, 동일 서브넷 간) ---
+
+resource "aws_security_group_rule" "k8s_control_plane_ingress_pod_cidr" {
+  type              = "ingress"
+  from_port         = 0
+  to_port           = 0
+  protocol          = "-1"
+  security_group_id = aws_security_group.k8s_control_plane.id
+  cidr_blocks       = ["10.244.0.0/16"]
+  description       = "Pod CIDR - Calico CrossSubnet same-subnet direct routing"
+}
+
+resource "aws_security_group_rule" "k8s_worker_ingress_pod_cidr" {
+  type              = "ingress"
+  from_port         = 0
+  to_port           = 0
+  protocol          = "-1"
+  security_group_id = aws_security_group.k8s_worker.id
+  cidr_blocks       = ["10.244.0.0/16"]
+  description       = "Pod CIDR - Calico CrossSubnet same-subnet direct routing"
+}
+
 resource "aws_security_group_rule" "rds_postgres_from_k8s_worker" {
   type                     = "ingress"
   from_port                = 5432
@@ -687,6 +709,7 @@ module "ec2_k8s_cp_2a" {
   associate_public_ip_address = false
   iam_instance_profile        = aws_iam_instance_profile.prod_k8s_node.name
   root_volume_size            = 50
+  source_dest_check           = false # Calico CrossSubnet 직접 라우팅
 }
 
 module "ec2_k8s_worker_2b" {
@@ -701,6 +724,7 @@ module "ec2_k8s_worker_2b" {
   associate_public_ip_address = false
   iam_instance_profile        = aws_iam_instance_profile.prod_k8s_node.name
   root_volume_size            = 50
+  source_dest_check           = false # Calico CrossSubnet 직접 라우팅
 }
 
 module "ec2_k8s_worker_2c" {
@@ -715,11 +739,10 @@ module "ec2_k8s_worker_2c" {
   associate_public_ip_address = false
   iam_instance_profile        = aws_iam_instance_profile.prod_k8s_node.name
   root_volume_size            = 50
+  source_dest_check           = false # Calico CrossSubnet 직접 라우팅
 }
 
-# ──────────────────────────────────────────────
-# EC2 — K8s Track B Nodes
-# ──────────────────────────────────────────────
+# --- Track B: control-plane 2대 + worker 2대 ---
 
 module "ec2_k8s_cp_2b" {
   source = "../../modules/ec2"
@@ -727,12 +750,13 @@ module "ec2_k8s_cp_2b" {
   environment                 = var.environment
   purpose                     = "k8s-cp-2b"
   instance_type               = "t3.medium"
-  ami_id                      = data.aws_ami.ubuntu_2404.id
+  ami_id                      = "ami-0bcc12a9a835527ef" # 배포 시점 고정 (AMI 드리프트 방지)
   subnet_id                   = local.private_subnet_2b
   security_group_ids          = [aws_security_group.k8s_control_plane.id]
   associate_public_ip_address = false
   iam_instance_profile        = aws_iam_instance_profile.prod_k8s_node.name
   root_volume_size            = 50
+  source_dest_check           = false # Calico CrossSubnet 직접 라우팅
 }
 
 module "ec2_k8s_cp_2c" {
@@ -741,12 +765,13 @@ module "ec2_k8s_cp_2c" {
   environment                 = var.environment
   purpose                     = "k8s-cp-2c"
   instance_type               = "t3.medium"
-  ami_id                      = data.aws_ami.ubuntu_2404.id
+  ami_id                      = "ami-0bcc12a9a835527ef" # 배포 시점 고정 (AMI 드리프트 방지)
   subnet_id                   = local.private_subnet_2c
   security_group_ids          = [aws_security_group.k8s_control_plane.id]
   associate_public_ip_address = false
   iam_instance_profile        = aws_iam_instance_profile.prod_k8s_node.name
   root_volume_size            = 50
+  source_dest_check           = false # Calico CrossSubnet 직접 라우팅
 }
 
 module "ec2_k8s_worker_2a_1" {
@@ -755,12 +780,13 @@ module "ec2_k8s_worker_2a_1" {
   environment                 = var.environment
   purpose                     = "k8s-worker-2a-1"
   instance_type               = "t3.medium"
-  ami_id                      = data.aws_ami.ubuntu_2404.id
+  ami_id                      = "ami-0bcc12a9a835527ef" # 배포 시점 고정 (AMI 드리프트 방지)
   subnet_id                   = local.private_subnet_2a
   security_group_ids          = [aws_security_group.k8s_worker.id]
   associate_public_ip_address = false
   iam_instance_profile        = aws_iam_instance_profile.prod_k8s_node.name
   root_volume_size            = 50
+  source_dest_check           = false # Calico CrossSubnet 직접 라우팅
 }
 
 module "ec2_k8s_worker_2a_2" {
@@ -769,12 +795,13 @@ module "ec2_k8s_worker_2a_2" {
   environment                 = var.environment
   purpose                     = "k8s-worker-2a-2"
   instance_type               = "t3.medium"
-  ami_id                      = data.aws_ami.ubuntu_2404.id
+  ami_id                      = "ami-0bcc12a9a835527ef" # 배포 시점 고정 (AMI 드리프트 방지)
   subnet_id                   = local.private_subnet_2a
   security_group_ids          = [aws_security_group.k8s_worker.id]
   associate_public_ip_address = false
   iam_instance_profile        = aws_iam_instance_profile.prod_k8s_node.name
   root_volume_size            = 50
+  source_dest_check           = false # Calico CrossSubnet 직접 라우팅
 }
 
 # ──────────────────────────────────────────────

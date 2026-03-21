@@ -682,6 +682,13 @@ kubectl get pods -n calico-system -o wide
   - **CSR 수동 승인**: `serverTLSBootstrap: true` 사용 시 kubelet serving cert CSR 이 Pending 상태로 쌓인다. `kubectl get csr -o name | xargs kubectl certificate approve` 로 일괄 승인해야 노드가 완전히 Ready 로 전환된다.
   - **Worker NotReady + `cni plugin not initialized`**: CNI config 파일(`/etc/cni/net.d/10-calico.conflist`)과 바이너리(`/opt/cni/bin/calico`)가 존재하는데도 worker 가 NotReady 인 경우, containerd 가 CNI 설정을 인식하지 못한 것이다. `systemctl restart containerd && systemctl restart kubelet` 로 해결된다.
   - **CrashLoopBackOff 백오프 카운터 초기화**: 여러 번 init/reset 을 반복하면 containerd 에 이전 컨테이너의 restart 카운터가 남아 즉시 CrashLoopBackOff 에 빠질 수 있다. `crictl rmp -af && systemctl restart containerd && systemctl start kubelet` 로 카운터를 리셋한다.
+  - **VXLANCrossSubnet + 동일 서브넷 노드 배치 시 필수 조치**:
+    - CrossSubnet 모드에서 **같은 서브넷에 2대 이상** 배치하면 해당 노드 간 pod 통신은 VXLAN 대신 **직접 라우팅**을 사용한다
+    - 직접 라우팅 패킷의 src/dst 가 Pod IP(10.244.x.x) 이므로 아래 2가지가 반드시 필요하다:
+      1. **EC2 Source/Destination Check 비활성화** — 미설정 시 ENI IP 와 불일치하는 패킷이 드롭됨
+      2. **Security Group 에 Pod CIDR(10.244.0.0/16) all traffic inbound 허용** — 미설정 시 SG 가 pod 간 패킷을 차단
+    - VXLAN(Always) 모드에서는 외부 패킷이 노드 IP(UDP 4789) 로 캡슐화되므로 위 조치가 불필요하다
+    - tigera-operator 가 관리하는 IPPool 은 `kubectl patch` 로 변경해도 즉시 되돌려진다. encapsulation 변경은 `kubectl edit installation default` → `spec.calicoNetwork.ipPools[].encapsulation` 을 수정해야 한다
 - 실패 징후:
   - node 계속 `NotReady`
   - `BIRD is not ready` 류 메시지 반복
@@ -1285,7 +1292,23 @@ sudo /tmp/bootstrap-k8s-node.sh prod-ec2-k8s-worker-2a-2
 
 - 실행 위치: `prod-ec2-k8s-cp-2a` 및 신규 노드
 - 목적: control-plane 3대, worker 4대 완성
-- 명령어:
+
+> **⚠️ 절대 `etcdctl member add` 를 수동으로 실행하지 않는다.**
+> kubeadm 이 내부적으로 learner(비투표 멤버) → promote 를 자동 처리한다.
+> 수동 추가 시 2노드 쿼럼(2/2)이 형성되어 1대만 불안정해져도 전체 API server 가 다운된다.
+
+#### 5-3-0. 사전 조건: 잔존 노드 정리
+
+```bash
+# cp-2a 에서 — NotReady/SchedulingDisabled 등 불필요한 노드가 남아 있는지 확인
+kubectl get nodes -o wide
+
+# 불필요한 노드가 있으면 삭제 (calico BGP full mesh 에서 비정상 노드가 하나라도 있으면
+# 새 노드의 calico-node 가 BGP 피어링에 실패하여 전체 신규 노드가 NotReady 가 된다)
+kubectl delete node <불필요한_노드_이름>
+```
+
+#### 5-3-1. join 커맨드 생성
 
 ```bash
 # cp-2a 에서
@@ -1302,10 +1325,13 @@ echo "Track B worker join command:"
 cat /root/join-worker-track-b.sh
 ```
 
-- 신규 control-plane 에서:
+#### 5-3-2. control-plane 순차 조인
+
+**반드시 1대씩 조인하고, 안정화를 확인한 뒤 다음 노드를 조인한다.**
 
 ```bash
-# cp-2a 에서 출력한 command 를 그대로 복사해서 각 신규 control-plane 에서 실행
+# --- cp-2b 조인 ---
+# cp-2b 에서:
 sudo kubeadm join <K8S_API_NLB_DNS>:6443 \
   --token <TOKEN> \
   --discovery-token-ca-cert-hash sha256:<HASH> \
@@ -1313,16 +1339,52 @@ sudo kubeadm join <K8S_API_NLB_DNS>:6443 \
   --certificate-key <CERT_KEY>
 ```
 
-- 신규 worker 에서:
+```bash
+# --- cp-2a 에서 안정화 확인 (다음 조인 전 필수) ---
+# etcd 멤버 2대, 모두 healthy
+sudo etcdctl --cacert /etc/kubernetes/pki/etcd/ca.crt \
+  --cert /etc/kubernetes/pki/etcd/peer.crt \
+  --key /etc/kubernetes/pki/etcd/peer.key \
+  member list -w table
+sudo etcdctl --cacert /etc/kubernetes/pki/etcd/ca.crt \
+  --cert /etc/kubernetes/pki/etcd/peer.crt \
+  --key /etc/kubernetes/pki/etcd/peer.key \
+  endpoint health --cluster -w table
+
+# calico-node 가 cp-2b 에서 Running 인지 확인
+kubectl get pods -n calico-system -o wide | grep cp-2b
+
+# cp-2b 노드가 Ready 인지 확인
+kubectl get nodes | grep cp-2b
+```
 
 ```bash
-# cp-2a 에서 출력한 worker join command 를 그대로 복사해서 각 신규 worker 에서 실행
+# --- 위 3개 모두 정상이면 cp-2c 조인 ---
+# cp-2c 에서:
+sudo kubeadm join <K8S_API_NLB_DNS>:6443 \
+  --token <TOKEN> \
+  --discovery-token-ca-cert-hash sha256:<HASH> \
+  --control-plane \
+  --certificate-key <CERT_KEY>
+```
+
+```bash
+# --- cp-2a 에서 안정화 확인 ---
+# etcd 멤버 3대, 모두 healthy 확인 (위와 동일 명령)
+# calico-node cp-2c Running 확인
+# cp-2c Ready 확인
+```
+
+#### 5-3-3. worker 조인
+
+```bash
+# 각 신규 worker 에서
 sudo kubeadm join <K8S_API_NLB_DNS>:6443 \
   --token <TOKEN> \
   --discovery-token-ca-cert-hash sha256:<HASH>
 ```
 
-- 이후 확인:
+#### 5-3-4. 최종 확인
 
 ```bash
 # CSR 승인 (serverTLSBootstrap: true 사용 시 필수)
@@ -1340,6 +1402,8 @@ kubectl get pods -A -o wide
   - control-plane join 시 cert key 오류
   - etcd member sync 실패
   - 노드가 `NotReady` 지속 → CSR 승인 누락 확인 (`kubectl get csr`)
+  - calico-node CrashLoopBackOff → 잔존 노드 정리 누락 의심 (5-3-0 재확인)
+  - 신규 워커에서 pod DNS 해석 실패 / pod 간 통신 불가 → **동일 서브넷 배치 + CrossSubnet 직접 라우팅 문제**. Step 3-3 주의사항의 "VXLANCrossSubnet + 동일 서브넷 노드 배치 시 필수 조치" 확인
 - 롤백 / 정리:
 
 ```bash
@@ -1547,6 +1611,9 @@ aws s3 cp /tmp/etcd-verify.db \
 - public NLB 는 `30080/30443`, internal API NLB 는 `6443` 로 target attachment 를 맞춰야 한다
 - `http_put_response_hop_limit = 2` 를 낮추면 pod 내부 AWS SDK 자격증명 조회가 깨질 수 있다
 - Track A 는 리허설이다. Cloudflare 나 기존 Caddy 라우팅은 건드리지 않는다
+- Calico VXLANCrossSubnet + 동일 서브넷에 다수 노드 배치 시 반드시 EC2 source/dest check 비활성화 + SG 에 Pod CIDR inbound 허용. 상세 내용은 Step 3-3 주의사항 참조
+- `kubeadm init` 시 `--control-plane-endpoint` 에 반드시 NLB DNS 지정. 직접 IP 사용 시 CP join 이 SG 차단으로 실패한다
+- ESO `dataFrom.find` + `regexp: ".*"` 는 SSM 경로 하위 전체를 가져오므로, 불필요한 파라미터가 SSM 에 존재하면 앱에 주입된다. 환경별 SSM 파라미터 관리에 주의
 
 ## 8. 공식 문서 참고
 

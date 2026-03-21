@@ -81,3 +81,9 @@ variable "private_ip" {
   type        = string
   default     = null
 }
+
+variable "source_dest_check" {
+  description = "Source/Destination check 활성화 여부. Calico 직접 라우팅 시 false 필요"
+  type        = bool
+  default     = true
+}
