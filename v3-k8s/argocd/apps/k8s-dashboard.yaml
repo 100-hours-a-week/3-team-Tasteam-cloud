@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: k8s-dashboard
+  namespace: argocd
+  labels:
+    project: tasteam
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: tasteam
+
+  source:
+    repoURL: https://kubernetes.github.io/dashboard/
+    chart: kubernetes-dashboard
+    targetRevision: "7.14.0"
+    helm:
+      values: |
+        # 내장 nginx/cert-manager 비활성화 (클러스터에 이미 설치됨)
+        nginx:
+          enabled: false
+        cert-manager:
+          enabled: false
+
+        # Ingress — nginx ingress controller 사용
+        app:
+          ingress:
+            enabled: true
+            ingressClassName: nginx
+            hosts:
+              - k8s.tasteam.kr
+            useDefaultAnnotations: false
+            annotations:
+              nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kubernetes-dashboard
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m0s

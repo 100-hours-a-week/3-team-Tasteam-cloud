@@ -1,0 +1,23 @@
+# ============================================================
+# Kubernetes Dashboard Helm Values — 참조용
+# ============================================================
+# ArgoCD Application(k8s-dashboard.yaml)의 inline values와 동기화 유지
+# 실제 배포는 ArgoCD Application의 helm.values가 적용됨
+# ============================================================
+
+# 내장 nginx/cert-manager 비활성화 (클러스터에 이미 설치됨)
+nginx:
+  enabled: false
+cert-manager:
+  enabled: false
+
+# Ingress — nginx ingress controller 사용
+app:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - k8s.tasteam.kr
+    useDefaultAnnotations: false
+    annotations:
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"

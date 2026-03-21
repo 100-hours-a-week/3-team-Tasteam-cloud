@@ -24,8 +24,7 @@ server:
     ingressClassName: nginx
     hostname: argocd.tasteam.kr
     annotations:
-      nginx.ingress.kubernetes.io/ssl-passthrough: "true"
-      nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
     tls: true
 
   # 리소스 — 소규모 클러스터에 맞춤

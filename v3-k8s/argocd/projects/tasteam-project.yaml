@@ -6,9 +6,10 @@ metadata:
 spec:
   description: "Tasteam 서비스 배포 프로젝트"
 
-  # 소스 저장소 제한 — cloud-repo만 허용
+  # 소스 저장소 제한
   sourceRepos:
     - "https://github.com/100-hours-a-week/3-team-Tasteam-cloud.git"
+    - "https://kubernetes.github.io/dashboard/"
 
   # 배포 대상 제한 — 허용된 namespace만
   destinations:
@@ -20,11 +21,15 @@ spec:
       namespace: app-dev
     - server: https://kubernetes.default.svc
       namespace: argocd
+    - server: https://kubernetes.default.svc
+      namespace: kubernetes-dashboard
 
   # 클러스터 리소스 허용 범위
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRoleBinding
 
   # namespace 리소스 허용 범위
   namespaceResourceWhitelist:
@@ -42,6 +47,8 @@ spec:
       kind: ExternalSecret
     - group: external-secrets.io
       kind: ClusterSecretStore
+    - group: "rbac.authorization.k8s.io"
+      kind: "*"
 
   # 위험한 리소스 차단
   namespaceResourceBlacklist:
