@@ -818,6 +818,86 @@ resource "aws_iam_user_policy_attachment" "backend_stg_ssm_session_access" {
 }
 
 # ──────────────────────────────────────────────
+# IAM — Developer Group (dev 환경 SSM 세션 접근)
+# ──────────────────────────────────────────────
+
+resource "aws_iam_group" "developer" {
+  name = "developer"
+  path = "/"
+}
+
+resource "aws_iam_group_membership" "developer" {
+  name  = "developer-group-membership"
+  group = aws_iam_group.developer.name
+
+  users = [
+    aws_iam_user.backend_readonly_paramstore["devon"].name,
+    aws_iam_user.backend_readonly_paramstore["sei"].name,
+    aws_iam_user.backend_readonly_paramstore["jian"].name,
+  ]
+}
+
+resource "aws_iam_policy" "dev_ssm_session_access" {
+  name        = "dev-ssm-session-access"
+  description = "Allow Session Manager shell access to dev Spring EC2 instances"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "StartSessionToDevSpringInstances"
+        Effect = "Allow"
+        Action = ["ssm:StartSession"]
+        Resource = "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*"
+        Condition = {
+          StringLike = {
+            "ssm:resourceTag/Name" = "dev-ec2-spring"
+          }
+        }
+      },
+      {
+        Sid    = "UseSessionDocuments"
+        Effect = "Allow"
+        Action = ["ssm:StartSession"]
+        Resource = [
+          "arn:aws:ssm:${var.aws_region}::document/SSM-SessionManagerRunShell",
+          "arn:aws:ssm:${var.aws_region}::document/AWS-StartInteractiveCommand",
+          "arn:aws:ssm:${var.aws_region}::document/AWS-StartPortForwardingSession",
+          "arn:aws:ssm:${var.aws_region}::document/AWS-StartPortForwardingSessionToRemoteHost"
+        ]
+      },
+      {
+        Sid    = "ManageOwnSessions"
+        Effect = "Allow"
+        Action = [
+          "ssm:ResumeSession",
+          "ssm:TerminateSession"
+        ]
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:session/$${aws:userid}-*"
+      },
+      {
+        Sid    = "ReadSessionTargets"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances",
+          "ssm:DescribeDocument",
+          "ssm:DescribeInstanceInformation",
+          "ssm:DescribeSessions",
+          "ssm:GetConnectionStatus",
+          "ssm:GetDocument"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_group_policy_attachment" "developer_dev_ssm_session" {
+  group      = aws_iam_group.developer.name
+  policy_arn = aws_iam_policy.dev_ssm_session_access.arn
+}
+
+# ──────────────────────────────────────────────
 # IAM — Cloud User (Full Access)
 # ──────────────────────────────────────────────
 
