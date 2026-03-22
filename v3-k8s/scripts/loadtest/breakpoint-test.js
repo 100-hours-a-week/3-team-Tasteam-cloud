@@ -30,20 +30,20 @@ const SUITE = (__ENV.TEST_SUITE || 'breakpoint').toLowerCase();
 function buildOptions() {
     const breakpoint_read = {
         executor: 'ramping-arrival-rate',
-        startRate: 40,
+        startRate: 10,
         timeUnit: '1s',
-        preAllocatedVUs: 200,
-        maxVUs: 2000,
+        preAllocatedVUs: 100,
+        maxVUs: 1000,
         stages: [
+            { target: 20, duration: '1m' },
+            { target: 40, duration: '1m' },
+            { target: 60, duration: '1m' },
+            { target: 80, duration: '1m' },
             { target: 100, duration: '1m' },
-            { target: 300, duration: '1m' },
-            { target: 600, duration: '1m' },
-            { target: 1000, duration: '1m' },
-            { target: 1500, duration: '1m' },
-            { target: 2000, duration: '1m' },
-            { target: 3000, duration: '1m' },
-            { target: 4500, duration: '1m' },
-            { target: 6000, duration: '1m' },
+            { target: 120, duration: '1m' },
+            { target: 150, duration: '1m' },
+            { target: 180, duration: '1m' },
+            { target: 200, duration: '1m' },
         ],
         exec: 'breakpointRead',
         tags: { phase: 'breakpoint', rw: 'read' },
@@ -79,16 +79,16 @@ export const options = {
     scenarios: buildOptions(),
     thresholds: {
         'http_req_failed{scenario:breakpoint_read}': [
-            { threshold: 'rate<0.30', abortOnFail: true, delayAbortEval: '30s' },
+            { threshold: 'rate<0.05', abortOnFail: true, delayAbortEval: '30s' },
         ],
         'http_req_failed{scenario:breakpoint_write}': [
-            { threshold: 'rate<0.30', abortOnFail: true, delayAbortEval: '30s' },
+            { threshold: 'rate<0.05', abortOnFail: true, delayAbortEval: '30s' },
         ],
         'http_req_duration{scenario:breakpoint_read}': [
-            { threshold: 'p(99)<15000', abortOnFail: true, delayAbortEval: '30s' },
+            { threshold: 'p(99)<2000', abortOnFail: true, delayAbortEval: '30s' },
         ],
         'http_req_duration{scenario:breakpoint_write}': [
-            { threshold: 'p(99)<15000', abortOnFail: true, delayAbortEval: '30s' },
+            { threshold: 'p(99)<2000', abortOnFail: true, delayAbortEval: '30s' },
         ],
     },
 };
@@ -109,7 +109,7 @@ export function setup() {
 
     const keywordIds = getReviewKeywords(token);
     const groupContext = resolveGroupContext(token);
-    const groupId = groupContext.groupId;
+    const groupId = groupContext.groupId || Number(__ENV.TEST_GROUP_ID || '302');
 
     console.log(`[Breakpoint] setup 완료: groupId=${groupId}`);
     return { token, groupId, keywordIds };

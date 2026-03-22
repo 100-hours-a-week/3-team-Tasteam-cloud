@@ -29,7 +29,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-TEST_ID="breakpoint-${SUITE}-$(date +%Y%m%d-%H%M%S)"
+DATE_DIR="$(date +%Y%m%d)"
+DATETIME="$(date +%Y%m%d-%H%M%S)"
+TEST_ID="breakpoint-${SUITE}-${DATETIME}"
+DASHBOARD_DIR="${SCRIPT_DIR}/dashboard/${DATE_DIR}"
+DASHBOARD_FILE="${DASHBOARD_DIR}/breakpoint-${SUITE}-${DATETIME}.html"
+mkdir -p "${DASHBOARD_DIR}"
 
 if [[ "$USE_PROMETHEUS" == "true" ]]; then
   K6_OUTPUT_ARG="-o experimental-prometheus-rw"
@@ -42,13 +47,18 @@ echo "== Breakpoint Test =="
 echo "   suite=${SUITE}"
 echo "   target=${BASE_URL}"
 echo "   testid=${TEST_ID}"
+echo "   dashboard=${DASHBOARD_FILE}"
 echo ""
 
 cd "${SCRIPT_DIR}"
+K6_WEB_DASHBOARD=true \
+K6_WEB_DASHBOARD_EXPORT="${DASHBOARD_FILE}" \
 k6 run $K6_OUTPUT_ARG \
   --tag testid="$TEST_ID" \
   -e TEST_ID="$TEST_ID" \
   -e TEST_SUITE="$SUITE" \
+  -e TEST_GROUP_ID="1" \
+  -e TEST_GROUP_CODE="9999" \
   breakpoint-test.js
 
 echo ""

@@ -19,21 +19,31 @@ export K6_PROMETHEUS_RW_USERNAME="${K6_PROMETHEUS_RW_USERNAME:-tasteam}"
 export K6_PROMETHEUS_RW_PASSWORD="${K6_PROMETHEUS_RW_PASSWORD:-tasteam-k6-metrics}"
 export K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM="${K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM:-true}"
 
-TEST_ID="fi-steady-${VUS}vus-$(date +%Y%m%d-%H%M%S)"
+DATE_DIR="$(date +%Y%m%d)"
+DATETIME="$(date +%Y%m%d-%H%M%S)"
+TEST_ID="fi-steady-${VUS}vus-${DATETIME}"
+DASHBOARD_DIR="${SCRIPT_DIR}/dashboard/${DATE_DIR}"
+DASHBOARD_FILE="${DASHBOARD_DIR}/fi-steady-${VUS}vus-${DATETIME}.html"
+mkdir -p "${DASHBOARD_DIR}"
 
 echo ""
 echo "== FI Steady Load =="
 echo "   target=${BASE_URL}"
 echo "   vus=${VUS}, duration=${DURATION}"
 echo "   testid=${TEST_ID}"
+echo "   dashboard=${DASHBOARD_FILE}"
 echo ""
 
 cd "${SCRIPT_DIR}"
+K6_WEB_DASHBOARD=true \
+K6_WEB_DASHBOARD_EXPORT="${DASHBOARD_FILE}" \
 k6 run -o experimental-prometheus-rw \
   --tag testid="$TEST_ID" \
   -e TEST_ID="$TEST_ID" \
   -e TEST_SUITE="smoke" \
   -e CACHE_MODE="off" \
+  -e TEST_GROUP_ID="1" \
+  -e TEST_GROUP_CODE="9999" \
   --vus "$VUS" \
   --duration "$DURATION" \
   fi-steady-load.js

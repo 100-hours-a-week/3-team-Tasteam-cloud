@@ -5,10 +5,10 @@ import { check } from 'k6';
 export const BASE_URL = __ENV.BASE_URL || 'https://api.tasteam.kr';
 
 const TEST_GROUP = {
-    id: parsePositiveIntEnv('TEST_GROUP_ID', 2002),
-    code: __ENV.TEST_GROUP_CODE || 'LOCAL-1234',
+    id: parsePositiveIntEnv('TEST_GROUP_ID', 1),
+    code: __ENV.TEST_GROUP_CODE || '9999',
 };
-const TEST_RESTAURANT_ID = parsePositiveIntEnv('TEST_RESTAURANT_ID', -1);
+const TEST_RESTAURANT_ID = __ENV.TEST_RESTAURANT_ID || '93394631623941'; // 자연산산꼼장어
 
 const GROUP_SEARCH_KEYWORDS = parseCsvEnv('GROUP_SEARCH_KEYWORDS').length > 0
     ? parseCsvEnv('GROUP_SEARCH_KEYWORDS')
@@ -267,7 +267,7 @@ export function pickRandomRestaurantId(ids) {
 export function pickRestaurantId(state, fallbackId = null) {
     if (fallbackId) return fallbackId;
     if (state && state.restaurantId) return state.restaurantId;
-    return TEST_RESTAURANT_ID > 0 ? TEST_RESTAURANT_ID : null;
+    return TEST_RESTAURANT_ID || null;
 }
 
 // ============ Search Data ============

@@ -51,7 +51,7 @@ export function setup() {
 
     const keywordIds = getReviewKeywords(token);
     const groupContext = resolveGroupContext(token);
-    const groupId = groupContext.groupId;
+    const groupId = groupContext.groupId || Number(__ENV.TEST_GROUP_ID || '302');
 
     console.log(`[FI Steady] setup 완료: groupId=${groupId}`);
     return { token, groupId, keywordIds };
