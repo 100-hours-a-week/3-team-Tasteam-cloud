@@ -10,6 +10,12 @@ variable "environment" {
   default     = "prod"
 }
 
+variable "qdrant_ami_id" {
+  description = "AMI ID baked from the staging Qdrant instance for prod Qdrant EC2"
+  type        = string
+  default     = "ami-02163765f33fa2c8b"
+}
+
 variable "codedeploy_app_name" {
   description = "CodeDeploy application name for backend"
   type        = string

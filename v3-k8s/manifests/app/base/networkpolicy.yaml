@@ -211,6 +211,15 @@ spec:
       ports:
         - protocol: TCP
           port: 6379
+    # Qdrant (REST/gRPC) — prod VPC 내 private EC2
+    - to:
+        - ipBlock:
+            cidr: 10.11.0.0/16
+      ports:
+        - protocol: TCP
+          port: 6333
+        - protocol: TCP
+          port: 6334
     # 외부 HTTPS (OpenAI, Gemini, HuggingFace, RunPod 등)
     - to:
         - ipBlock:

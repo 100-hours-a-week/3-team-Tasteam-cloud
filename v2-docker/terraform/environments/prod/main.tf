@@ -601,7 +601,7 @@ module "ec2_qdrant" {
   environment                 = var.environment
   purpose                     = "qdrant"
   instance_type               = "t3.small"
-  ami_id                      = data.aws_ami.docker_base.id
+  ami_id                      = var.qdrant_ami_id
   subnet_id                   = module.vpc.private_subnet_ids[0]
   security_group_ids          = [aws_security_group.qdrant_prod.id]
   associate_public_ip_address = false
