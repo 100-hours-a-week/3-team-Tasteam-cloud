@@ -10,9 +10,10 @@ spec:
   minReplicas: 2
   maxReplicas: 4
   metrics:
-    - type: Resource
-      resource:
+    - type: ContainerResource
+      containerResource:
         name: cpu
+        container: spring-boot
         target:
           type: Utilization
           averageUtilization: 70

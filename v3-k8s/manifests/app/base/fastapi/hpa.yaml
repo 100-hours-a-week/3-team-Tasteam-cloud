@@ -10,9 +10,10 @@ spec:
   minReplicas: 1
   maxReplicas: 2
   metrics:
-    - type: Resource
-      resource:
+    - type: ContainerResource
+      containerResource:
         name: cpu
+        container: fastapi
         target:
           type: Utilization
           averageUtilization: 70

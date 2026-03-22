@@ -1,4 +1,46 @@
 ---
+# 0. Linkerd control plane 통신 허용 — sidecar proxy가 identity/destination에 접근
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-linkerd-control-plane
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+    - Ingress
+  egress:
+    # linkerd-identity (mTLS 인증서), linkerd-destination (서비스 디스커버리)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: linkerd
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8086
+        - protocol: TCP
+          port: 8090
+    # Linkerd proxy 간 통신 (mesh 내 pod-to-pod)
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 4143
+  ingress:
+    # Linkerd proxy 간 inbound (mesh 트래픽)
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 4143
+    # Linkerd health check (readiness/liveness)
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 4191
+---
 # 1. DNS 허용 — 반드시 먼저 적용
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
