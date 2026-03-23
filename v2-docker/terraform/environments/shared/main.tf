@@ -907,6 +907,50 @@ resource "aws_iam_group_policy_attachment" "developer_dev_ssm_session" {
   policy_arn = aws_iam_policy.dev_ssm_session_access.arn
 }
 
+# ──────────────────────────────────────────────
+# IAM — Developer Group: S3 Analytics 버킷 접근
+# ──────────────────────────────────────────────
+
+resource "aws_iam_policy" "developer_analytics_s3_access" {
+  name        = "developer-analytics-s3-access"
+  description = "Allow developers to access analytics S3 buckets across all environments"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ListAnalyticsBuckets"
+        Effect = "Allow"
+        Action = ["s3:ListBucket"]
+        Resource = [
+          "arn:aws:s3:::tasteam-dev-analytics",
+          "arn:aws:s3:::tasteam-stg-analytics",
+          "arn:aws:s3:::tasteam-prod-analytics",
+        ]
+      },
+      {
+        Sid    = "ReadWriteAnalyticsObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+        ]
+        Resource = [
+          "arn:aws:s3:::tasteam-dev-analytics/*",
+          "arn:aws:s3:::tasteam-stg-analytics/*",
+          "arn:aws:s3:::tasteam-prod-analytics/*",
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_group_policy_attachment" "developer_analytics_s3" {
+  group      = aws_iam_group.developer.name
+  policy_arn = aws_iam_policy.developer_analytics_s3_access.arn
+}
+
 resource "aws_iam_policy" "backend_prod_ssm_session_access" {
   name        = "backend-prod-ssm-session-access"
   description = "Allow Session Manager shell access to prod-tagged EC2 instances"
