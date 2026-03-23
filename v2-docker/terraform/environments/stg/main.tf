@@ -673,10 +673,10 @@ resource "aws_security_group" "kafka_private" {
   # Prod K8s 워커 → Stg Kafka (VPC 피어링 경유)
   ingress {
     cidr_blocks = ["10.11.0.0/16"]
-    from_port   = 9092
-    to_port     = 9092
+    from_port   = 29092
+    to_port     = 29092
     protocol    = "tcp"
-    description = "Kafka client traffic from prod K8s workers via VPC peering"
+    description = "Kafka external listener from prod K8s workers via VPC peering"
   }
 
   ingress {
