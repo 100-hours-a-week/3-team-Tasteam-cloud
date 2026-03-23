@@ -751,6 +751,15 @@ locals {
   }
 }
 
+locals {
+  backend_prod_ssm_session_users = {
+    devon = aws_iam_user.backend_readonly_paramstore["devon"].name
+    jayvi = aws_iam_user.backend_readonly_paramstore["jayvi"].name
+    jian  = aws_iam_user.backend_readonly_paramstore["jian"].name
+    sei   = aws_iam_user.backend_readonly_paramstore["sei"].name
+  }
+}
+
 resource "aws_iam_policy" "backend_stg_ssm_session_access" {
   name        = "backend-stg-ssm-session-access"
   description = "Allow Session Manager shell access to stg-tagged EC2 instances"
@@ -834,6 +843,7 @@ resource "aws_iam_group_membership" "developer" {
     aws_iam_user.backend_readonly_paramstore["devon"].name,
     aws_iam_user.backend_readonly_paramstore["sei"].name,
     aws_iam_user.backend_readonly_paramstore["jian"].name,
+    aws_iam_user.backend_readonly_paramstore["jayvi"].name,
   ]
 }
 
@@ -845,13 +855,13 @@ resource "aws_iam_policy" "dev_ssm_session_access" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "StartSessionToDevSpringInstances"
-        Effect = "Allow"
-        Action = ["ssm:StartSession"]
+        Sid      = "StartSessionToDevInstances"
+        Effect   = "Allow"
+        Action   = ["ssm:StartSession"]
         Resource = "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*"
         Condition = {
           StringLike = {
-            "ssm:resourceTag/Name" = "dev-ec2-spring"
+            "ssm:resourceTag/Name" = "dev-ec2-*"
           }
         }
       },
@@ -895,6 +905,72 @@ resource "aws_iam_policy" "dev_ssm_session_access" {
 resource "aws_iam_group_policy_attachment" "developer_dev_ssm_session" {
   group      = aws_iam_group.developer.name
   policy_arn = aws_iam_policy.dev_ssm_session_access.arn
+}
+
+resource "aws_iam_policy" "backend_prod_ssm_session_access" {
+  name        = "backend-prod-ssm-session-access"
+  description = "Allow Session Manager shell access to prod-tagged EC2 instances"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "StartSessionToProdInstances"
+        Effect = "Allow"
+        Action = [
+          "ssm:StartSession"
+        ]
+        Resource = "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*"
+        Condition = {
+          StringLike = {
+            "ssm:resourceTag/Name" = "prod-ec2-*"
+          }
+        }
+      },
+      {
+        Sid    = "UseSessionDocuments"
+        Effect = "Allow"
+        Action = [
+          "ssm:StartSession"
+        ]
+        Resource = [
+          "arn:aws:ssm:${var.aws_region}::document/SSM-SessionManagerRunShell",
+          "arn:aws:ssm:${var.aws_region}::document/AWS-StartInteractiveCommand",
+          "arn:aws:ssm:${var.aws_region}::document/AWS-StartPortForwardingSession",
+          "arn:aws:ssm:${var.aws_region}::document/AWS-StartPortForwardingSessionToRemoteHost"
+        ]
+      },
+      {
+        Sid    = "ManageOwnSessions"
+        Effect = "Allow"
+        Action = [
+          "ssm:ResumeSession",
+          "ssm:TerminateSession"
+        ]
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:session/$${aws:userid}-*"
+      },
+      {
+        Sid    = "ReadSessionTargets"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances",
+          "ssm:DescribeDocument",
+          "ssm:DescribeInstanceInformation",
+          "ssm:DescribeSessions",
+          "ssm:GetConnectionStatus",
+          "ssm:GetDocument"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_user_policy_attachment" "backend_prod_ssm_session_access" {
+  for_each = local.backend_prod_ssm_session_users
+
+  user       = each.value
+  policy_arn = aws_iam_policy.backend_prod_ssm_session_access.arn
 }
 
 # ──────────────────────────────────────────────
