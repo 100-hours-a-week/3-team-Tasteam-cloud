@@ -628,6 +628,29 @@ module "ec2_qdrant" {
 }
 
 # ──────────────────────────────────────────────
+# EC2 — FastAPI (Private)
+# - Baked AMI from for-jayvi (no reboot)
+# - Private subnet 배치
+# - Public IP/EIP 미사용
+# ──────────────────────────────────────────────
+
+module "ec2_fastapi" {
+  source = "../../modules/ec2"
+
+  environment                 = var.environment
+  purpose                     = "fastapi"
+  instance_type               = "t3.small"
+  ami_id                      = "ami-025bdae8a85f978a2"
+  subnet_id                   = module.vpc.private_subnet_ids[1]
+  security_group_ids          = [module.security.app_sg_id]
+  associate_public_ip_address = false
+  manage_key_pair             = false
+  key_name                    = "stg-tasteam-fastapi"
+  root_volume_size            = 30
+  iam_instance_profile        = aws_iam_instance_profile.ec2_common.name
+}
+
+# ──────────────────────────────────────────────
 # Security Group — Kafka (Private)
 # - 9092, 29092: Spring ASG 인스턴스 허용
 # - 9092~9093, 29092: Kafka 브로커 간 통신(self)

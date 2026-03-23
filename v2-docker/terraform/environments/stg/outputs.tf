@@ -123,6 +123,16 @@ output "ec2_qdrant_private_key_path" {
   value       = module.ec2_qdrant.private_key_path
 }
 
+output "ec2_fastapi_instance_id" {
+  description = "Stg FastAPI EC2 instance ID"
+  value       = module.ec2_fastapi.instance_id
+}
+
+output "ec2_fastapi_private_ip" {
+  description = "Stg FastAPI EC2 private IP"
+  value       = module.ec2_fastapi.private_ip
+}
+
 output "qdrant_http_endpoint" {
   description = "Qdrant HTTP endpoint for FastAPI"
   value       = "http://${module.ec2_qdrant.private_ip}:6333"
