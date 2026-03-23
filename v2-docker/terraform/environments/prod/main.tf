@@ -984,3 +984,34 @@ resource "aws_ssm_parameter" "cloud_map_service_id" {
     Name = "${var.environment}-ssm-backend-CLOUD_MAP_SERVICE_ID"
   }
 }
+
+# ──────────────────────────────────────────────
+# VPC Peering — Prod ↔ Stg (Kafka 통신용)
+# vpc-peering 모듈은 원래 Shared 중심 피어링용이지만,
+# 같은 계정 내 동일 구조이므로 requester=prod, accepter=stg로 변용한다.
+# ──────────────────────────────────────────────
+
+data "terraform_remote_state" "stg" {
+  backend = "s3"
+
+  config = {
+    bucket  = "tasteam-v2-tfstate"
+    key     = "v2-docker/stg/terraform.tfstate"
+    region  = "ap-northeast-2"
+    profile = "tasteam-v2"
+  }
+}
+
+module "vpc_peering_stg" {
+  source = "../../modules/vpc-peering"
+
+  # requester = prod, accepter = stg (모듈 변수명은 shared 기준이지만 의미 동일)
+  environment          = var.environment
+  peer_environment     = "stg"
+  requester_vpc_id     = module.vpc.vpc_id
+  requester_cidr       = module.vpc.vpc_cidr_block
+  requester_route_table_id = module.vpc.private_route_table_id
+  accepter_vpc_id          = data.terraform_remote_state.stg.outputs.vpc_id
+  accepter_cidr            = data.terraform_remote_state.stg.outputs.vpc_cidr_block
+  accepter_route_table_id  = data.terraform_remote_state.stg.outputs.private_route_table_id
+}
