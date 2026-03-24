@@ -50,7 +50,7 @@ images:
     newTag: 11cff48
   - name: FASTAPI_IMAGE
     newName: 203802643061.dkr.ecr.ap-northeast-2.amazonaws.com/tasteam-ai
-    newTag: c533339
+    newTag: 712e2d4
 
 configMapGenerator:
   - name: spring-config
