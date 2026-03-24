@@ -19,6 +19,8 @@ spec:
       app: spring-boot
   template:
     metadata:
+      annotations:
+        config.linkerd.io/skip-outbound-ips: "169.254.169.254"
       labels:
         app: spring-boot
         part-of: tasteam
