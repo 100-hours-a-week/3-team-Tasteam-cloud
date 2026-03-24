@@ -1025,7 +1025,7 @@ resource "aws_iam_user_policy" "spring_s3_upload" {
       {
         Effect   = "Allow"
         Action   = ["s3:ListBucket"]
-        Resource = [aws_s3_bucket.uploads.arn]
+        Resource = [aws_s3_bucket.uploads.arn, aws_s3_bucket.analytics.arn]
       },
       {
         Effect = "Allow"
@@ -1034,7 +1034,7 @@ resource "aws_iam_user_policy" "spring_s3_upload" {
           "s3:GetObject",
           "s3:DeleteObject"
         ]
-        Resource = ["${aws_s3_bucket.uploads.arn}/*"]
+        Resource = ["${aws_s3_bucket.uploads.arn}/*", "${aws_s3_bucket.analytics.arn}/*"]
       }
     ]
   })
