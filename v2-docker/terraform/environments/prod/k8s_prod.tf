@@ -995,3 +995,51 @@ resource "aws_autoscaling_attachment" "k8s_worker_ingress_https" {
   autoscaling_group_name = aws_autoscaling_group.k8s_worker.name
   lb_target_group_arn    = aws_lb_target_group.k8s_ingress_https.arn
 }
+
+# ──────────────────────────────────────────────
+# IAM User — Spring Boot S3 Upload 전용 (임시방편)
+# kubeadm 클러스터에서 IRSA/IMDS 폴백이 불가하므로
+# 정적 Access Key를 SSM → ESO → Pod 환경변수로 주입한다.
+#
+# TODO: 워커 노드 IAM Role에 S3 권한이 있고 hop limit=2인데도
+# Pod에서 IMDS(169.254.169.254)에 접근 실패하는 원인 조사 필요.
+# 원인 해결 시 이 IAM User와 main.tf의 STORAGE_ACCESS_KEY,
+# STORAGE_SECRET_KEY 파라미터를 제거하고 IMDS 폴백으로 전환한다.
+# ──────────────────────────────────────────────
+
+resource "aws_iam_user" "spring_s3_upload" {
+  name = "prod-spring-s3-upload"
+
+  tags = {
+    Purpose = "spring-boot-s3-upload"
+  }
+}
+
+resource "aws_iam_user_policy" "spring_s3_upload" {
+  name = "s3-upload-access"
+  user = aws_iam_user.spring_s3_upload.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = [aws_s3_bucket.uploads.arn]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject"
+        ]
+        Resource = ["${aws_s3_bucket.uploads.arn}/*"]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_access_key" "spring_s3_upload" {
+  user = aws_iam_user.spring_s3_upload.name
+}

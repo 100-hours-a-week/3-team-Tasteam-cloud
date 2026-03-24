@@ -104,6 +104,8 @@ module "ssm" {
     "backend/STORAGE_BASE_URL"                     = { type = "String", description = "S3 base URL" }
     "backend/STORAGE_PRESIGNED_EXPIRATION_SECONDS" = { type = "String", description = "Presigned URL TTL (seconds)" }
     "backend/STORAGE_TEMP_UPLOAD_PREFIX"           = { type = "String", description = "Temp upload key prefix" }
+    "backend/STORAGE_ACCESS_KEY"                   = { type = "SecureString", description = "S3 IAM access key ID" }
+    "backend/STORAGE_SECRET_KEY"                   = { type = "SecureString", description = "S3 IAM secret access key" }
 
     # ── Spring Boot: CORS ──
     "backend/CORS_ALLOWED_ORIGINS" = { type = "String", description = "CORS allowed origins (comma-separated)" }

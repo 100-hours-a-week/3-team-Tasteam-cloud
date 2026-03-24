@@ -180,3 +180,18 @@ output "rds_identifier" {
   description = "RDS instance identifier"
   value       = module.rds.identifier
 }
+
+# ──────────────────────────────────────────────
+# Spring S3 Upload IAM Access Key
+# ──────────────────────────────────────────────
+
+output "spring_s3_access_key_id" {
+  description = "S3 업로드 전용 IAM Access Key ID (SSM STORAGE_ACCESS_KEY 값으로 사용)"
+  value       = aws_iam_access_key.spring_s3_upload.id
+}
+
+output "spring_s3_secret_access_key" {
+  description = "S3 업로드 전용 IAM Secret Access Key (SSM STORAGE_SECRET_KEY 값으로 사용)"
+  value       = aws_iam_access_key.spring_s3_upload.secret
+  sensitive   = true
+}
