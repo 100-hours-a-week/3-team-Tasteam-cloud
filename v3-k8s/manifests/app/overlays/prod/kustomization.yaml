@@ -47,7 +47,7 @@ patches:
 images:
   - name: SPRING_BOOT_IMAGE
     newName: 203802643061.dkr.ecr.ap-northeast-2.amazonaws.com/tasteam-be
-    newTag: 11cff48
+    newTag: 2a100a2
   - name: FASTAPI_IMAGE
     newName: 203802643061.dkr.ecr.ap-northeast-2.amazonaws.com/tasteam-ai
     newTag: 712e2d4
