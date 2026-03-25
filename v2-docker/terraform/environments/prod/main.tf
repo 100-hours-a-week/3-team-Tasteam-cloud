@@ -147,6 +147,10 @@ module "ssm" {
     "backend/LOG_MAX_FILE_SIZE" = { type = "String", description = "Log max file size" }
     "backend/LOG_MAX_HISTORY"   = { type = "String", description = "Log max history" }
 
+    # ── Spring Boot: AI ──
+    "backend/AI_BASE_URL"        = { type = "String", description = "AI(FastAPI) service base URL" }
+    "backend/AI_RESPONSE_TIMEOUT" = { type = "String", description = "AI service response timeout" }
+
     # ── Frontend (Vite) ──
     "frontend/VITE_APP_ENV"                      = { type = "String", description = "Frontend app environment" }
     "frontend/VITE_APP_URL"                      = { type = "String", description = "Frontend app base URL" }
