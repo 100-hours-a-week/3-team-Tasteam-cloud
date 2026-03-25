@@ -163,6 +163,13 @@ spec:
       ports:
         - protocol: TCP
           port: 6379
+    # Kafka 브로커 — stg VPC 내 Kafka EC2 (VPC 피어링)
+    - to:
+        - ipBlock:
+            cidr: 10.12.0.0/16
+      ports:
+        - protocol: TCP
+          port: 29092
     # 외부 HTTPS (ECR pull 등)
     - to:
         - ipBlock:
