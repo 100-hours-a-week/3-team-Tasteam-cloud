@@ -1,0 +1,28 @@
+controller:
+  replicaCount: 2
+
+  service:
+    type: NodePort
+    nodePorts:
+      http: 30080
+      https: 30443
+
+  admissionWebhooks:
+    enabled: true
+
+  config:
+    # Request body size: unlimited
+    proxy-body-size: "0"
+
+    # Request header limits: raise substantially to avoid header-size rejections
+    client-header-buffer-size: "64k"
+    large-client-header-buffers: "8 128k"
+
+    # Accept non-standard header names/format that may be rejected by default
+    enable-underscores-in-headers: "true"
+    ignore-invalid-headers: "false"
+
+    # Upstream response header buffer: raise to reduce "upstream sent too big header"
+    proxy-buffer-size: "128k"
+    proxy-buffers-number: "16"
+    proxy-busy-buffers-size: "256k"

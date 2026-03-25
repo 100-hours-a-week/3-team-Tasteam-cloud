@@ -3,8 +3,8 @@ kind: Ingress
 metadata:
   name: tasteam-ws-ingress
   annotations:
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
     nginx.ingress.kubernetes.io/upstream-hash-by: "$remote_addr"
 spec:
   ingressClassName: nginx
