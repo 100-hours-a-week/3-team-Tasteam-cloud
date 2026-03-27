@@ -738,6 +738,7 @@ helm uninstall metrics-server -n kube-system
 
 - 실행 위치: `prod-ec2-k8s-cp-2a`, `로컬 작업 PC`
 - 목적: public NLB 가 바라볼 NodePort ingress 를 설치한다.
+- Helm values: `v3-k8s/manifests/helm/values/ingress-nginx.yaml`
 - 명령어:
 
 ```bash
@@ -748,11 +749,7 @@ helm repo update
 
 helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
   -n ingress-nginx \
-  --set controller.replicaCount=2 \
-  --set controller.service.type=NodePort \
-  --set controller.service.nodePorts.http=30080 \
-  --set controller.service.nodePorts.https=30443 \
-  --set controller.admissionWebhooks.enabled=true
+  -f v3-k8s/manifests/helm/values/ingress-nginx.yaml
 
 kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=5m
 kubectl get svc -n ingress-nginx ingress-nginx-controller
@@ -1231,7 +1228,10 @@ curl -i --http1.1 \
 - 롤백 / 정리:
   - SSM env 추출값, RDS/Redis SG 규칙, Ingress, Service, worker target group 등록 상태를 먼저 확인한다.
 
-## Phase 5. Track B 운영 확장
+## Phase 5. Track B 운영 확장 (Deprecated)
+
+> **이 Phase 는 더 이상 사용하지 않는다.** Track B 는 ASG 기반 worker + Cluster Autoscaler 구조로 변경되었다.
+> 실행 기준 문서: [`v3-k8s/docs/runbook-track-b.md`](runbook-track-b.md)
 
 ### Step 5-1. Track B 노드 생성
 

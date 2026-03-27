@@ -57,8 +57,8 @@ k6 run $K6_OUTPUT_ARG \
   --tag testid="$TEST_ID" \
   -e TEST_ID="$TEST_ID" \
   -e TEST_SUITE="$SUITE" \
-  -e TEST_GROUP_ID="1" \
-  -e TEST_GROUP_CODE="9999" \
+  -e TEST_GROUP_ID="109551" \
+  -e TEST_GROUP_CODE="1234" \
   breakpoint-test.js
 
 echo ""

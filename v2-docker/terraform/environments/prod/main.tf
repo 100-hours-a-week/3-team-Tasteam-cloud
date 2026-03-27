@@ -106,6 +106,10 @@ module "ssm" {
     "backend/STORAGE_TEMP_UPLOAD_PREFIX"           = { type = "String", description = "Temp upload key prefix" }
     "backend/STORAGE_ACCESS_KEY"                   = { type = "SecureString", description = "S3 IAM access key ID" }
     "backend/STORAGE_SECRET_KEY"                   = { type = "SecureString", description = "S3 IAM secret access key" }
+    "backend/TASTEAM_BATCH_RECOMMENDATION_IMPORT_S3_PREFIX_OR_URI" = {
+      type        = "String"
+      description = "S3 prefix or URI for batch recommendation import source"
+    }
 
     # ── Spring Boot: CORS ──
     "backend/CORS_ALLOWED_ORIGINS" = { type = "String", description = "CORS allowed origins (comma-separated)" }
@@ -1012,10 +1016,10 @@ module "vpc_peering_stg" {
   source = "../../modules/vpc-peering"
 
   # requester = prod, accepter = stg (모듈 변수명은 shared 기준이지만 의미 동일)
-  environment          = var.environment
-  peer_environment     = "stg"
-  requester_vpc_id     = module.vpc.vpc_id
-  requester_cidr       = module.vpc.vpc_cidr_block
+  environment              = var.environment
+  peer_environment         = "stg"
+  requester_vpc_id         = module.vpc.vpc_id
+  requester_cidr           = module.vpc.vpc_cidr_block
   requester_route_table_id = module.vpc.private_route_table_id
   accepter_vpc_id          = data.terraform_remote_state.stg.outputs.vpc_id
   accepter_cidr            = data.terraform_remote_state.stg.outputs.vpc_cidr_block
