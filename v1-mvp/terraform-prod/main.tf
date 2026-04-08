@@ -28,12 +28,3 @@ resource "aws_instance" "prod_single_instance" {
     volume_type = "gp3"
   }
 }
-
-resource "aws_eip" "main" {
-  domain = "vpc"
-}
-
-resource "aws_eip_association" "main" {
-  instance_id   = aws_instance.prod_single_instance.id
-  allocation_id = aws_eip.main.id
-}
