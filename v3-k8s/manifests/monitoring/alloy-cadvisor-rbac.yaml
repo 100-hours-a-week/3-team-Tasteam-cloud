@@ -1,0 +1,26 @@
+# Alloy가 apiserver proxy 경유로 kubelet cadvisor를 scrape하기 위한 추가 권한
+# grafana/alloy chart 기본 ClusterRole에 nodes/proxy가 없을 경우 보강
+# (chart 기본 RBAC이 이미 nodes/proxy를 포함하면 본 파일은 불필요)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: alloy-cadvisor-proxy
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes/metrics
+      - nodes/proxy
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: alloy-cadvisor-proxy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: alloy-cadvisor-proxy
+subjects:
+  - kind: ServiceAccount
+    name: alloy            # alloy chart 기본 SA 이름 (release명에 따라 조정)
+    namespace: monitoring

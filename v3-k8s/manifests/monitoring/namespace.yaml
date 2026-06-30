@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    # 카오스 엔지니어링 관측 지원용 최소 모니터링 스택 거주 ns
+    purpose: observability

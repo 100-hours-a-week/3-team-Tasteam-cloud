@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-state-metrics
+  namespace: argocd
+  labels:
+    project: tasteam
+    component: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"   # resources(ns/secret) 이후
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: tasteam-monitoring
+
+  # multi-source: helm chart(외부 repo) + 이 repo의 values
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-state-metrics
+      targetRevision: 5.18.0
+      helm:
+        valueFiles:
+          - $values/v3-k8s/manifests/helm/values/kube-state-metrics.yaml
+    - repoURL: https://github.com/100-hours-a-week/3-team-Tasteam-cloud.git
+      targetRevision: main
+      ref: values
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

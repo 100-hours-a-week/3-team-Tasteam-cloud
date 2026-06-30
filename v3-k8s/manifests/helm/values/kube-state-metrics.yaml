@@ -1,0 +1,31 @@
+# kube-state-metrics — 카오스 관측용 최소 설치
+# chart: prometheus-community/kube-state-metrics
+# 목적: HPA replica / Pod 상태 / PDB / Deployment 메트릭을 Alloy가 scrape → prom-dev push
+
+# 리소스 최소화 (단일 replica로 충분 — 메트릭 노출 전용)
+replicas: 1
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+# 카오스 실험에 필요한 메트릭 그룹만 수집 (카디널리티 절감)
+collectors:
+  - pods
+  - deployments
+  - replicasets
+  - horizontalpodautoscalers
+  - poddisruptionbudgets
+  - nodes
+
+# Alloy가 서비스명으로 scrape하므로 Service만 있으면 됨 (ServiceMonitor 불필요)
+prometheus:
+  monitor:
+    enabled: false
+
+# 전역 read 권한 (ClusterRole) — KSM 동작 필수
+rbac:
+  create: true

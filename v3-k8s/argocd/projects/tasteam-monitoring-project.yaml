@@ -1,0 +1,38 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: tasteam-monitoring
+  namespace: argocd
+spec:
+  description: "Tasteam 카오스 관측용 최소 모니터링 (Alloy + kube-state-metrics)"
+
+  # 소스 저장소 — git(values/plain manifest) + helm chart repo
+  sourceRepos:
+    - "https://github.com/100-hours-a-week/3-team-Tasteam-cloud.git"
+    - "https://grafana.github.io/helm-charts"
+    - "https://prometheus-community.github.io/helm-charts"
+
+  # 배포 대상 — monitoring ns 전용
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
+
+  # 클러스터 리소스 허용 — Namespace + KSM/Alloy의 전역 read RBAC
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+
+  # namespace 리소스 허용
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: "*"
+    - group: apps
+      kind: "*"
+    - group: rbac.authorization.k8s.io
+      kind: "*"
+    - group: external-secrets.io
+      kind: ExternalSecret
